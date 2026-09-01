@@ -22,8 +22,8 @@ flowchart LR
     os[Local filesystem\nbackup/export destinations]
     notify[Local desktop-notification service\nwith terminal fallback]
 
-    human -->|interactive shell commands\nor future TUI| cli
-    agent -->|non-interactive commands\nJSON/CSV| cli
+    human -->|CLI commands\nor future TUI| cli
+    agent -->|same CLI commands;\nstructured output when needed| cli
     cli -->|read/write| data
     cli -->|backup/export| os
     cli -->|Pomodoro completion alert| notify
@@ -32,6 +32,8 @@ flowchart LR
 ### Boundary
 
 The v1 boundary ends at the user’s filesystem. The existing Phoenix application is neither called nor required. A future import/export or sync adapter is outside this specification.
+
+The human and automation actors do not have separate command sets, credentials, data stores, or domain rules. Both call the same CLI. The difference is only presentation: a human may prefer readable terminal output, a countdown, notifications, or a future TUI; an agent—or a human script—can request JSON or CSV with stable stdout, diagnostics on stderr, and exit codes.
 
 ## C4 Level 2 — CLI container view
 
