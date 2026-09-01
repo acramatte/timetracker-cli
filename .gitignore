@@ -14,6 +14,15 @@
 !go.sum
 !go.mod
 
+# CI
+!.github/workflows/*.yml
+
+# Makefile
+!Makefile
+
+# Docs
+!docs/*.md
+
 # Spec documents
 !specs/**/*.md
 
@@ -21,3 +30,5 @@
 
 # ...even if they are in subdirectories
 !*/
+
+docs/pr-proposal-phase-0.md

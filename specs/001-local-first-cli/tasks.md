@@ -5,21 +5,21 @@
 
 ## Milestone A — Project foundation
 
-- [ ] **A1** Initialise the Go module, executable entry point, and conventional internal package layout.
-- [ ] **A2** Add developer tooling commands for format, lint, unit test, integration test, and release smoke test.
-- [ ] **A3** Run a SQLite-driver portability spike; record the selected driver and distribution rationale.
-- [ ] **A4** Implement platform data/config directory resolution plus `--data-dir` and `TIMETRACKER_DATA_DIR` precedence.
-- [ ] **A5** Add root documentation for installation assumptions and local-first scope.
+- [x] **A1** Initialise the Go module, executable entry point, and conventional internal package layout.
+- [x] **A2** Add developer tooling commands for format, lint, unit test, integration test, and release smoke test.
+- [x] **A3** Run a SQLite-driver portability spike; record the selected driver and distribution rationale.
+- [x] **A4** Implement platform data/config directory resolution plus `--data-dir` and `TIMETRACKER_DATA_DIR` precedence.
+- [x] **A5** Add root documentation for installation assumptions and local-first scope.
 
 **Depends on:** none
 **Acceptance references:** AT-01 through AT-04.
 
 ## Milestone B — Database and migration boundary
 
-- [ ] **B1** Add embedded Goose ownership for forward-only SQL schema migrations and database-version tracking; require no user-installed `goose` executable.
-- [ ] **B2** Add settings, projects, and time-entry tables with application-generated string IDs, UTC audit fields, and Pomodoro duration/scheduled-end fields.
-- [ ] **B3** Add database constraints for required descriptions, valid stop/start ordering, project references, one active entry, and valid active-Pomodoro duration/end facts.
-- [ ] **B4** Configure WAL mode, short transactions, and bounded busy timeout on every database open.
+- [x] **B1** Add embedded Goose ownership for forward-only SQL schema migrations and database-version tracking; require no user-installed `goose` executable.
+- [x] **B2** Add settings, projects, and time-entry tables with application-generated string IDs, UTC audit fields, and Pomodoro duration/scheduled-end fields.
+- [x] **B3** Add database constraints for required descriptions, valid stop/start ordering, project references, one active entry, and valid active-Pomodoro duration/end facts.
+- [x] **B4** Configure WAL mode, short transactions, and bounded busy timeout on every database open.
 - [ ] **B5** Implement idempotent database initialisation plus persisted default timezone and 30-minute Pomodoro settings.
 - [ ] **B6** Implement a handwritten parameterised `database/sql` SQLite repository for reads, writes, transactions, dynamic filters, and known error categories; keep `sqlc` deferred until its adoption criteria are met.
 - [ ] **B7** Implement `doctor` data-path, schema, timezone, and basic health reporting.
