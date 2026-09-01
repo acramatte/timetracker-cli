@@ -16,12 +16,12 @@
 
 ## Milestone B — Database and migration boundary
 
-- [ ] **B1** Define forward-only schema migration ownership and database-version tracking.
+- [ ] **B1** Add embedded Goose ownership for forward-only SQL schema migrations and database-version tracking; require no user-installed `goose` executable.
 - [ ] **B2** Add settings, projects, and time-entry tables with application-generated string IDs, UTC audit fields, and Pomodoro duration/scheduled-end fields.
 - [ ] **B3** Add database constraints for required descriptions, valid stop/start ordering, project references, one active entry, and valid active-Pomodoro duration/end facts.
 - [ ] **B4** Configure WAL mode, short transactions, and bounded busy timeout on every database open.
 - [ ] **B5** Implement idempotent database initialisation plus persisted default timezone and 30-minute Pomodoro settings.
-- [ ] **B6** Implement SQLite repository interfaces for reads, writes, transactions, and known error categories.
+- [ ] **B6** Implement a handwritten parameterised `database/sql` SQLite repository for reads, writes, transactions, dynamic filters, and known error categories; keep `sqlc` deferred until its adoption criteria are met.
 - [ ] **B7** Implement `doctor` data-path, schema, timezone, and basic health reporting.
 
 **Depends on:** A1, A3, A4

@@ -15,7 +15,7 @@
 
 | ID | Scenario | Given / When | Then |
 |---|---|---|---|
-| AT-01 | Single-binary operation | A supported release artifact is installed with no `sqlite3` executable available. | `timetracker doctor` succeeds and identifies the linked local database implementation without launching a service. |
+| AT-01 | Single-binary operation | A supported release artifact is installed with no `sqlite3` or `goose` executable available. | `timetracker doctor` succeeds, applies its embedded migrations when needed, and identifies the linked local database implementation without launching a service or external migration command. |
 | AT-02 | Default data directory | No data override is supplied. | The database is created in the documented platform user-data location. |
 | AT-03 | Environment override | `TIMETRACKER_DATA_DIR` points at an empty temporary directory. | All database files are created only in that directory. |
 | AT-04 | Flag precedence | Both the environment variable and `--data-dir` specify different directories. | The flag directory is used and the environment directory is untouched. |
@@ -86,7 +86,7 @@
 
 | ID | Scenario | Given / When | Then |
 |---|---|---|---|
-| AT-37 | Migration upgrade | A fixture database at every previously released schema version is opened by the current executable. | It migrates forward, preserves entries/projects/settings, and passes `doctor`. |
+| AT-37 | Migration upgrade | A fixture database at every previously released schema version is opened by the current executable with no external migration tool installed. | Its embedded Goose migrations apply forward, preserve entries/projects/settings, and pass `doctor`. |
 | AT-38 | Interrupted command recovery | A process is terminated during an ordinary mutation in a controlled test. | On the next open, SQLite recovers to an all-or-nothing durable state with no invariant violation. |
 | AT-39 | Release smoke test | Each supported-platform release artifact uses an isolated data directory to initialise, add a project, start/stop, report, export, back up, and diagnose. | The complete flow succeeds without network access or a separate database process. |
 

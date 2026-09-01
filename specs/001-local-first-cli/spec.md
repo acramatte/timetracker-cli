@@ -175,8 +175,9 @@ The command-line flag wins over the environment variable; the environment variab
 - Use SQLite in WAL mode with a bounded busy timeout.
 - Create the data directory with user-only permissions where the host platform supports it.
 - Store instants in UTC; convert only for display, date filtering, and export according to the configured timezone.
-- Version the schema with forward-only migrations.
-- Use parameterised queries for all user-provided values.
+- Version the schema with forward-only SQL migrations managed by Goose and embedded in the distributed executable. Users do not need a `goose` executable or a separate migration step.
+- Use a handwritten, parameterised `database/sql` SQLite repository for version 1. It owns transaction boundaries, query composition, error translation, and mapping persistence rows into domain values.
+- Defer `sqlc` until the schema and query surface have stabilised and generated query plumbing demonstrably reduces repetition without obscuring domain transaction boundaries. If adopted, Goose migrations remain the schema source of truth and generated query methods remain behind the repository boundary.
 
 ## 9. Invariants and safety rules
 
@@ -213,7 +214,7 @@ CSV must be encoded by a compliant CSV writer so descriptions, project names, qu
 
 ## 12. Future compatibility
 
-Application-generated string identifiers, UTC timestamps, explicit migrations, and a repository boundary are intentional preparation for a later import/export or synchronisation adapter. They do not imply that v1 must implement remote sync.
+Application-generated string identifiers, UTC timestamps, explicit embedded migrations, and a repository boundary are intentional preparation for a later import/export or synchronisation adapter. They do not imply that v1 must implement remote sync.
 
 ## 13. Open decisions to settle before implementation
 

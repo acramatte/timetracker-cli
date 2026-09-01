@@ -46,7 +46,7 @@ flowchart TB
       countdown[Pomodoro foreground runner\ncountdown and overdue recovery]
       app[Application services\ntrack, Pomodoro, projects, entries, report, backup]
       domain[Domain policy\nvalidation, time semantics, invariants]
-      repo[SQLite repository\ntransactions, migrations, queries]
+      repo[SQLite repository\nGoose migrations, transactions, handwritten queries]
       notifier[Notification adapter\ndesktop attempt, terminal fallback]
       tui[Optional future TUI adapter]
     end
@@ -75,7 +75,7 @@ flowchart TB
 | Notification adapter | Attempt OS-native desktop notification and provide terminal fallback. | Make persistence conditional on notification delivery. |
 | Application services | Orchestrate use cases such as start, stop, edit, Pomodoro, report, export, and backup. | Decide terminal formatting. |
 | Domain policy | Validate descriptions/times; define filter and timezone semantics. | Access the filesystem directly. |
-| SQLite repository | Run migrations; perform parameterised queries; own transaction boundaries and database constraints. | Print user-facing output. |
+| SQLite repository | Apply embedded Goose SQL migrations; perform handwritten parameterised `database/sql` queries; own transaction boundaries and database constraints. | Print user-facing output or expose generated persistence types as domain values. |
 | Future TUI adapter | Render state and collect human input. | Establish a second persistence model. |
 
 ## Runtime and storage model
@@ -90,6 +90,8 @@ installed timetracker binary
 ```
 
 The SQLite engine is linked into the application through its Go driver. There is no separate local daemon and no separately installed SQLite executable requirement.
+
+Forward-only Goose SQL migrations are compiled into the executable and applied during database open. The version 1 repository uses handwritten parameterised queries because it owns domain-specific transaction boundaries and dynamic filtering. `sqlc` is intentionally deferred; if introduced after query shapes stabilise, it may generate low-level methods only and must remain behind this repository boundary.
 
 ## Schema outline
 

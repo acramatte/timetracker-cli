@@ -20,14 +20,17 @@ A Go project can build a single local executable and has a documented technical 
    - no separately installed SQLite executable;
    - supported on intended Linux, macOS, and Windows targets;
    - compatible with the chosen release build approach.
-3. Define a migration mechanism and local data-directory resolver.
-4. Add developer commands for formatting, linting, unit tests, and integration tests.
-5. Add a short root README covering local-first intent and development entry points.
+3. Add embedded Goose support for forward-only SQL migrations and define the local data-directory resolver. The executable, not a user-installed `goose` command, owns migration application.
+4. Record the v1 data-access decision: use a handwritten, parameterised `database/sql` repository; defer `sqlc` until schema and query shapes stabilise.
+5. Add developer commands for formatting, linting, unit tests, and integration tests.
+6. Add a short root README covering local-first intent and development entry points.
 
 ### Exit criteria
 
 - A clean checkout builds one executable on the development platform.
 - The selected driver/distribution choice is documented with its trade-offs.
+- Migrations can be applied by the executable without a separately installed migration tool.
+- The handwritten-repository boundary and deferred `sqlc` adoption criteria are documented.
 - No tracker behavior exists yet beyond groundwork.
 
 ## Phase 1 — Durable database and domain core
@@ -39,10 +42,10 @@ The application creates and migrates a private local database whose schema enfor
 ### Work
 
 1. Implement platform data/config directory resolution and command/environment overrides.
-2. Create schema migrations for settings, projects, and time entries, including persisted Pomodoro duration and scheduled-end fields.
+2. Create embedded Goose SQL migrations for settings, projects, and time entries, including persisted Pomodoro duration and scheduled-end fields.
 3. Enable SQLite WAL and configure bounded contention behavior.
 4. Persist default timezone and 30-minute Pomodoro configuration at initialisation.
-5. Implement repository transactions and error translation.
+5. Implement handwritten `database/sql` repository transactions, dynamic query composition, row mapping, and error translation.
 6. Enforce one active entry, valid time ranges, and persisted Pomodoro duration/end invariants at the database layer.
 7. Implement `doctor` use case that exposes resolved paths, schema version, and storage health.
 
