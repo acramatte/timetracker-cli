@@ -111,6 +111,12 @@
 | AT-41 | TUI conflict safety | An entry is already active before a TUI start action. | The TUI surfaces the same safe conflict as `start`; it does not silently replace the entry. |
 | AT-42 | TUI-free operation | The TUI dependencies or terminal capabilities are unavailable. | All version 1 CLI workflows remain functional and unchanged. |
 
+## K. Help and command discovery
+
+| ID | Scenario | Given / When | Then |
+|---|---|---|---|
+| AT-50 | Command help reference | A compiled CLI is run with `--help` and with `help entries`, `help report`, `help export`, and `help backup`. | Each command exits successfully without opening a database; stdout contains consistent usage text and the relevant command flags; stderr is empty. |
+
 ## Definition of done for v1
 
-Version 1 is acceptable when AT-01 through AT-39 and AT-43 through AT-49 are automated where practical, remaining platform-specific checks have recorded evidence, and all user-visible behavior matches `spec.md`. AT-40 through AT-42 apply only if the optional TUI milestone is accepted.
+Version 1 is acceptable when AT-01 through AT-39, AT-43 through AT-50 are automated where practical, remaining platform-specific checks have recorded evidence, and all user-visible behavior matches `spec.md`. AT-40 through AT-42 apply only if the optional TUI milestone is accepted.
