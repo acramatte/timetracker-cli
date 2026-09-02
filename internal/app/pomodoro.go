@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"io"
 	"time"
 
 	"github.com/acramatte/timetracker-cli/internal/store"
@@ -29,7 +30,19 @@ type Notifier interface {
 	Notify(ctx context.Context, title, message string) error
 }
 
-// NOPNotifier is the terminal-fallback/no-op notifier.
+// TerminalNotifier provides the portable fallback when no desktop
+// notification adapter is available. It writes a bell and clear message to
+// the supplied stream, normally stderr so JSON stdout remains pure.
+type TerminalNotifier struct {
+	Writer io.Writer
+}
+
+func (n TerminalNotifier) Notify(_ context.Context, title, message string) error {
+	_, err := fmt.Fprintf(n.Writer, "\a%s: %s\n", title, message)
+	return err
+}
+
+// NoopNotifier is useful for tests or callers that explicitly disable output.
 type NoopNotifier struct{}
 
 func (NoopNotifier) Notify(context.Context, string, string) error { return nil }

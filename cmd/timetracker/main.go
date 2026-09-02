@@ -58,7 +58,7 @@ func run(args []string) error {
 
 	st := &store.Store{DB: db}
 	tracking := &app.TrackingService{Store: st}
-	pomodoro := &app.PomodoroService{Store: st, Notifier: app.NoopNotifier{}}
+	pomodoro := &app.PomodoroService{Store: st, Notifier: app.TerminalNotifier{Writer: os.Stderr}}
 	projects := &app.ProjectsService{Store: st}
 	entries := &app.EntriesService{Store: st}
 
@@ -127,7 +127,11 @@ func cmdStatus(ctx context.Context, t *app.TrackingService, jsonMode bool) error
 		return err
 	}
 	if e == nil {
-		fmt.Println("no active entry")
+		if jsonMode {
+			fmt.Println(`{"active": null}`)
+		} else {
+			fmt.Println("no active entry")
+		}
 		return nil
 	}
 	payload, err := app.MarshalActive(*e, nil)
