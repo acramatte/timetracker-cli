@@ -77,6 +77,12 @@ func run(args []string) error {
 		return cmdProjects(ctx, projects, cmdArgs, *jsonOut)
 	case "entries":
 		return cmdEntries(ctx, entries, cmdArgs, *jsonOut)
+	case "report":
+		return cmdReport(ctx, st, cmdArgs, *jsonOut)
+	case "export":
+		return cmdExport(ctx, st, cmdArgs)
+	case "backup":
+		return cmdBackup(ctx, st, cmdArgs)
 	case "doctor":
 		return cmdDoctor(ctx, st, dataPath)
 	default:
@@ -334,11 +340,13 @@ func cmdProjects(ctx context.Context, p *app.ProjectsService, args []string, jso
 
 func cmdEntries(ctx context.Context, e *app.EntriesService, args []string, jsonMode bool) error {
 	if len(args) == 0 {
-		return fmt.Errorf("entries requires a subcommand: add|edit")
+		return fmt.Errorf("entries requires a subcommand: add|edit|list")
 	}
 	sub, subArgs := args[0], args[1:]
 
 	switch sub {
+	case "list":
+		return cmdEntriesList(ctx, e.Store, subArgs, jsonMode)
 	case "add":
 		fs := flag.NewFlagSet("entries add", flag.ContinueOnError)
 		start := fs.String("start", "", "start instant (RFC3339)")
@@ -418,6 +426,130 @@ func cmdEntries(ctx context.Context, e *app.EntriesService, args []string, jsonM
 	default:
 		return fmt.Errorf("unknown entries subcommand %q", sub)
 	}
+}
+
+func entryFilters(fs *flag.FlagSet) (from, to, project, query, status *string) {
+	from = fs.String("from", "", "first local calendar date (YYYY-MM-DD)")
+	to = fs.String("to", "", "last local calendar date (YYYY-MM-DD)")
+	project = fs.String("project", "", "project ID")
+	query = fs.String("query", "", "case-insensitive description text")
+	status = fs.String("status", "", "entry state: active, completed, or all")
+	return
+}
+
+func filterValues(from, to, project, query, status *string) app.EntryFilters {
+	return app.EntryFilters{
+		From: *from, To: *to, ProjectID: *project, Query: *query, Status: *status,
+	}
+}
+
+func cmdEntriesList(ctx context.Context, s *store.Store, args []string, jsonMode bool) error {
+	fs := flag.NewFlagSet("entries list", flag.ContinueOnError)
+	from, to, project, query, status := entryFilters(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	entries, err := app.List(ctx, s, filterValues(from, to, project, query, status))
+	if err != nil {
+		return fail(err)
+	}
+	if jsonMode {
+		return json.NewEncoder(os.Stdout).Encode(map[string]any{"entries": entries})
+	}
+	for _, result := range entries {
+		entry := result.Entry
+		end := "active"
+		if entry.StoppedAt != nil {
+			end = entry.StoppedAt.UTC().Format(time.RFC3339)
+		}
+		fmt.Printf("%s  %s  %s  %s  %s\n", entry.ID, entry.StartedAt.UTC().Format(time.RFC3339), end, result.ProjectName, entry.Description)
+	}
+	return nil
+}
+
+func cmdReport(ctx context.Context, s *store.Store, args []string, jsonMode bool) error {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	from, to, project, query, status := entryFilters(fs)
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	report, err := app.Report(ctx, s, filterValues(from, to, project, query, status))
+	if err != nil {
+		return fail(err)
+	}
+	payload := map[string]any{
+		"count":                        report.Count,
+		"completed_duration_seconds":   report.CompletedDuration,
+		"completed_duration_formatted": formatReportDuration(report.CompletedDuration),
+	}
+	if jsonMode {
+		return json.NewEncoder(os.Stdout).Encode(payload)
+	}
+	fmt.Printf("%d entries  %s completed\n", report.Count, payload["completed_duration_formatted"])
+	return nil
+}
+
+func formatReportDuration(seconds int64) string {
+	hours := seconds / 3600
+	minutes := (seconds % 3600) / 60
+	remaining := seconds % 60
+	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, remaining)
+}
+
+func cmdExport(ctx context.Context, s *store.Store, args []string) error {
+	if len(args) == 0 || args[0] != "csv" {
+		return fmt.Errorf("export requires format: csv")
+	}
+	fs := flag.NewFlagSet("export csv", flag.ContinueOnError)
+	from, to, project, query, status := entryFilters(fs)
+	output := fs.String("output", "-", "output path, or - for stdout")
+	if err := fs.Parse(args[1:]); err != nil {
+		return err
+	}
+	var out *os.File
+	if *output == "-" {
+		if err := app.ExportCSV(ctx, s, filterValues(from, to, project, query, status), os.Stdout); err != nil {
+			return fail(err)
+		}
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(*output), 0700); err != nil {
+		return fail(fmt.Errorf("create export directory: %w", err))
+	}
+	var err error
+	out, err = os.Create(*output)
+	if err != nil {
+		return fail(fmt.Errorf("create export file: %w", err))
+	}
+	defer out.Close()
+	if err := app.ExportCSV(ctx, s, filterValues(from, to, project, query, status), out); err != nil {
+		return fail(err)
+	}
+	fmt.Fprintf(os.Stderr, "exported CSV to %s\n", *output)
+	return nil
+}
+
+func cmdBackup(ctx context.Context, s *store.Store, args []string) error {
+	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
+	output := fs.String("output", "", "backup database path")
+	if err := fs.Parse(args); err != nil {
+		return err
+	}
+	path := *output
+	if path == "" && len(fs.Args()) == 1 {
+		path = fs.Arg(0)
+	}
+	if path == "" {
+		return fmt.Errorf("backup requires an output path")
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return fail(fmt.Errorf("create backup directory: %w", err))
+	}
+	if err := s.Backup(ctx, path); err != nil {
+		return fail(err)
+	}
+	fmt.Printf("backed up database to %s\n", path)
+	return nil
 }
 
 func cmdDoctor(ctx context.Context, s *store.Store, dataPath string) error {

@@ -1,6 +1,6 @@
 # Local-First TimeTracker CLI — Implementation Task Breakdown
 
-**Status:** Proposed
+**Status:** Phase 3 implemented; remaining milestones are proposed.
 **Rule:** Do not begin a later task until its stated dependencies and acceptance references are satisfied.
 
 ## Milestone A — Project foundation
@@ -47,12 +47,12 @@
 
 ## Milestone D — History, reports, and durable exits
 
-- [ ] **D1** Implement entry list filters for date range, project, description text, and state.
-- [ ] **D2** Implement timezone-aware local date boundaries, including DST regression fixtures.
-- [ ] **D3** Implement completed-duration report totals.
-- [ ] **D4** Implement CSV export from the shared filter/query path.
-- [ ] **D5** Implement consistent SQLite backup.
-- [ ] **D6** Document database, WAL sidecar files, backup, recovery, and export behavior.
+- [x] **D1** Implement entry list filters for date range, project, description text, and state.
+- [x] **D2** Implement timezone-aware local date boundaries, including DST regression fixtures.
+- [x] **D3** Implement completed-duration report totals.
+- [x] **D4** Implement CSV export from the shared filter/query path.
+- [x] **D5** Implement consistent SQLite backup.
+- [x] **D6** Document database, WAL sidecar files, backup, recovery, and export behavior.
 
 **Depends on:** C1 through C12
 **Acceptance references:** AT-23 through AT-31.
