@@ -29,18 +29,18 @@
 
 ## Milestone C — Projects and tracking commands
 
-- [ ] **C1** Implement project add/list/archive application services.
-- [ ] **C2** Implement the active-entry status query.
-- [ ] **C3** Implement safe timer start with description/project validation.
-- [ ] **C4** Implement timer stop, including no-active and named-entry cases.
-- [ ] **C5** Implement explicit transactional `start --replace`.
-- [ ] **C6** Implement durable 30-minute-default Pomodoro start and early-stop application services, including one-session duration override.
-- [ ] **C7** Implement foreground countdown, desktop-notification attempt, terminal fallback, and non-fatal notification failure behavior.
-- [ ] **C8** Reconcile overdue Pomodoros at the stored scheduled end before active-entry operations.
-- [ ] **C9** Implement manual completed-entry creation.
-- [ ] **C10** Implement entry correction/edit behavior.
-- [ ] **C11** Define JSON resource envelopes and command error behavior.
-- [ ] **C12** Add non-interactive command integration tests with isolated data directories.
+- [x] **C1** Implement project add/list/archive application services.
+- [x] **C2** Implement the active-entry status query.
+- [x] **C3** Implement safe timer start with description/project validation.
+- [x] **C4** Implement timer stop, including no-active and named-entry cases.
+- [x] **C5** Implement explicit transactional `start --replace`.
+- [x] **C6** Implement durable 30-minute-default Pomodoro start and early-stop application services, including one-session duration override.
+- [x] **C7** Implement foreground countdown, desktop-notification attempt, terminal fallback, and non-fatal notification failure behavior.
+- [x] **C8** Reconcile overdue Pomodoros at the stored scheduled end before active-entry operations.
+- [x] **C9** Implement manual completed-entry creation.
+- [x] **C10** Implement entry correction/edit behavior.
+- [x] **C11** Define JSON resource envelopes and command error behavior.
+- [x] **C12** Add non-interactive command integration tests with isolated data directories.
 
 **Depends on:** B1 through B6
 **Acceptance references:** AT-13 through AT-22 and AT-43 through AT-49.

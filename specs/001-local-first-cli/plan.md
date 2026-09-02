@@ -62,6 +62,8 @@ The application creates and migrates a private local database whose schema enfor
 
 ## Phase 2 — Agent-first tracking and project commands
 
+### Status: implemented on `feat/phase-2-commands` (PR #3, stacked on PR #2). Shell completion generation deferred to Phase 4 (E4) per task order.
+
 ### Outcome
 
 Agents can manage active work and projects entirely through non-interactive commands.
