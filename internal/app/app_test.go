@@ -224,6 +224,32 @@ func TestPomodoroRunDeadlineWithFakeNotifier(t *testing.T) {
 	assert.True(t, stopped.StoppedAt.Truncate(time.Second).Equal(ends.Truncate(time.Second)))
 }
 
+func TestPomodoroRunDeadlineReportsProgress(t *testing.T) {
+	_, pom, _, _ := newTestApp(t)
+	ctx := context.Background()
+
+	var updates []time.Duration
+	pom.Progress = func(remaining time.Duration) {
+		updates = append(updates, remaining)
+	}
+
+	start := time.Now().UTC()
+	ends := start.Add(1100 * time.Millisecond)
+	dur := int64(1)
+	e, err := pom.Store.StartEntry(ctx, store.TimeEntry{
+		ID: "e-progress", Description: "progress test", StartedAt: start,
+		Pomodoro: true, PomodoroDurationSeconds: &dur, PomodoroEndsAt: &ends,
+		CreatedAt: start, UpdatedAt: start,
+	})
+	require.NoError(t, err)
+
+	stopped, err := pom.RunDeadline(ctx, e)
+	require.NoError(t, err)
+	require.NotNil(t, stopped.StoppedAt)
+	require.NotEmpty(t, updates, "foreground runner must report countdown progress")
+	assert.Zero(t, updates[len(updates)-1], "runner reports zero at completion")
+}
+
 // failingNotifier always fails: completion must still succeed (AT-49).
 type failingNotifier struct{}
 

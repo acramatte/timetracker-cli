@@ -16,6 +16,9 @@ type PomodoroService struct {
 	Now func() time.Time
 	// Notifier is attempted once at deadline; failure is non-fatal (§6.1).
 	Notifier Notifier
+	// Progress receives remaining time updates from the foreground runner.
+	// It is nil for callers that do not need display updates (including tests).
+	Progress func(remaining time.Duration)
 	// DefaultMinutes is read from settings at first use if nil.
 	DefaultMinutes int
 }
@@ -134,16 +137,35 @@ func (p *PomodoroService) RunDeadline(ctx context.Context, e store.TimeEntry) (s
 		return store.TimeEntry{}, fmt.Errorf("%w: entry %s has no scheduled end", ErrValidation, e.ID)
 	}
 
-	// Sleep until deadline (bounded by context cancellation).
+	// Sleep until deadline (bounded by context cancellation), reporting a
+	// countdown to the interactive command when requested.
 	remaining := time.Until(*e.PomodoroEndsAt)
 	if remaining > 0 {
-		select {
-		case <-ctx.Done():
-			return store.TimeEntry{}, ctx.Err()
-		case <-time.After(remaining):
+		ticker := time.NewTicker(time.Second)
+		defer ticker.Stop()
+		if p.Progress != nil {
+			p.Progress(remaining)
+		}
+		for {
+			select {
+			case <-ctx.Done():
+				return store.TimeEntry{}, ctx.Err()
+			case <-ticker.C:
+				remaining = time.Until(*e.PomodoroEndsAt)
+				if remaining <= 0 {
+					if p.Progress != nil {
+						p.Progress(0)
+					}
+					goto deadline
+				}
+				if p.Progress != nil {
+					p.Progress(remaining)
+				}
+			}
 		}
 	}
 
+deadline:
 	stopped, err := p.Store.StopEntry(ctx, e.ID, *e.PomodoroEndsAt)
 	if err != nil {
 		return store.TimeEntry{}, err

@@ -231,11 +231,24 @@ func cmdPomodoro(ctx context.Context, p *app.PomodoroService, args []string, jso
 		if err != nil {
 			return fail(err)
 		}
-		payload, err := app.MarshalEntryEnvelope(e)
+		if !jsonMode {
+			fmt.Printf("pomodoro started %s\n", e.ID)
+			p.Progress = func(remaining time.Duration) {
+				fmt.Printf("\rremaining %02d:%02d", int(remaining/time.Minute), int(remaining/time.Second)%60)
+				if remaining <= 0 {
+					fmt.Println()
+				}
+			}
+		}
+		completed, err := p.RunDeadline(ctx, e)
+		if err != nil {
+			return fail(err)
+		}
+		payload, err := app.MarshalEntryEnvelope(completed)
 		if err != nil {
 			return err
 		}
-		printJSON(jsonMode, payload, fmt.Sprintf("pomodoro started %s (ends %s)", e.ID, e.PomodoroEndsAt.Format(time.RFC3339)))
+		printJSON(jsonMode, payload, fmt.Sprintf("pomodoro complete %s", completed.ID))
 		return nil
 
 	case "stop":
