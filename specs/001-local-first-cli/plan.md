@@ -113,6 +113,8 @@ A caller can trust the CLI to retrieve, total, export, and protect local time da
 
 ## Phase 4 — Hardening and distribution
 
+### Status: hardening coverage implemented on `feat/phase-4-hardening` (stacked on `feat/cli-help`); shell completions (E4) remain open pending a library spike.
+
 ### Outcome
 
 The tool is ready for ordinary local installation and unattended agent use.
@@ -125,6 +127,10 @@ The tool is ready for ordinary local installation and unattended agent use.
 4. Add command reference, examples, recovery guide, and data-location documentation.
 5. Add a release smoke-test script that uses an isolated data directory.
 6. Verify that uninstall guidance preserves user data.
+
+Uninstall guidance: the CLI never deletes user data automatically; removing the
+binary leaves the data directory intact for manual cleanup, documented in the
+README's data-location table.
 
 ### Exit criteria
 

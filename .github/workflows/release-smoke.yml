@@ -1,0 +1,21 @@
+name: Release smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  release-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.27'
+          cache: true
+
+      - name: Cross-compile release matrix and run CLI smoke flow
+        run: ./scripts/release-smoke.sh

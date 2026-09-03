@@ -26,6 +26,9 @@
 # Docs
 !docs/*.md
 
+# Scripts
+!scripts/*.sh
+
 # Spec documents
 !specs/**/*.md
 

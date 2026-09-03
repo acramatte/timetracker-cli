@@ -30,7 +30,7 @@
 | AT-08 | Persistence | A project and completed entry are created; the command exits; a new command lists entries. | The entry and its project remain present. |
 | AT-09 | Required description | A caller starts or adds an entry with empty or whitespace-only description. | The command fails; no entry is created. |
 | AT-10 | Valid time range | A caller adds or edits an entry with a stop instant before its start instant. | The command fails; the previous record remains unchanged. |
-| AT-11 | One active entry | Two start operations race against a database with no active entry. | Exactly one succeeds; exactly one active entry exists afterwards. |
+| AT-11 | One active entry | Two start operations race against a database with no active entry. | Exactly one succeeds; exactly one active entry exists afterwards. Automated: eight concurrent repository starts produce exactly one win and seven conflict-category failures. |
 | AT-12 | WAL coexistence | A read command overlaps an ordinary completed-entry write. | Both commands complete within the configured contention policy; the database remains consistent. |
 
 ## C. Projects
@@ -87,8 +87,8 @@
 | ID | Scenario | Given / When | Then |
 |---|---|---|---|
 | AT-37 | Migration upgrade | A fixture database at every previously released schema version is opened by the current executable with no external migration tool installed. | Its embedded Goose migrations apply forward, preserve entries/projects/settings, and pass `doctor`. |
-| AT-38 | Interrupted command recovery | A process is terminated during an ordinary mutation in a controlled test. | On the next open, SQLite recovers to an all-or-nothing durable state with no invariant violation. |
-| AT-39 | Release smoke test | Each supported-platform release artifact uses an isolated data directory to initialise, add a project, start/stop, report, export, back up, and diagnose. | The complete flow succeeds without network access or a separate database process. |
+| AT-38 | Interrupted command recovery | A process is terminated during an ordinary mutation in a controlled test. | On the next open, SQLite recovers to an all-or-nothing durable state with no invariant violation. Automated: an uncommitted half-written insert disappears on reopen while committed data and the one-active index survive. |
+| AT-39 | Release smoke test | Each supported-platform release artifact uses an isolated data directory to initialise, add a project, start/stop, report, export, back up, and diagnose. | The complete flow succeeds without network access or a separate database process. Automated: `scripts/release-smoke.sh` runs the host flow and cross-compiles linux/amd64, linux/arm64, darwin/arm64, windows/amd64 artifacts, wired as the `release-smoke` CI job. |
 
 ## I. Pomodoro lifecycle and notification
 
