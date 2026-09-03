@@ -8,9 +8,9 @@ presentation modes for automation, not a separate interface.
 
 ## Status
 
-Phases 0 through 3 are implemented on stacked branches: local persistence,
-tracking and Pomodoro commands, projects, history filters, reports, CSV export,
-and SQLite backup. The optional TUI and release-hardening phases remain.
+Phases 0 through 4 are implemented on main: local persistence, tracking and
+Pomodoro commands, projects, history filters, reports, CSV export, SQLite
+backup, and release-hardening coverage. The optional TUI phase remains.
 
 - Product specification: [specs/001-local-first-cli/spec.md](specs/001-local-first-cli/spec.md)
 - Architecture: [specs/001-local-first-cli/architecture.md](specs/001-local-first-cli/architecture.md)
