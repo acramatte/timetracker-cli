@@ -22,11 +22,11 @@ func TestCLIHelp(t *testing.T) {
 	}
 
 	checks := map[string][]string{
-		"--help":       {"Usage:", "Global flags:", "help [command]"},
-		"help entries": {"Usage: timetracker entries", "list entries", "--from"},
-		"help report":  {"Usage: timetracker report", "--status"},
-		"help export":  {"Usage: timetracker export csv", "--output"},
-		"help backup":  {"Usage: timetracker backup", "--output"},
+		"--help":       {"Usage:", "Available Commands:", "--data-dir", "--json"},
+		"help entries": {"Usage:", "timetracker entries", "list"},
+		"help report":  {"Usage:", "timetracker report", "--status"},
+		"help export":  {"Usage:", "timetracker export csv", "--output"},
+		"help backup":  {"Usage:", "timetracker backup", "--output"},
 	}
 	for invocation, want := range checks {
 		result := runCLI(t, binary, strings.Fields(invocation)...)

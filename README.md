@@ -68,7 +68,9 @@ apply any newer embedded migrations on its next open.
 ## Command reference
 
 Run `timetracker --help` or `timetracker help <command>` for the same reference
-from the binary. Global flags may be placed before the command:
+from the binary (the command tree is built on Cobra, and `completion
+[bash|zsh|fish|powershell]` generates shell completion). Global flags may be
+placed before the command:
 
 ```text
 timetracker [--data-dir <dir>] [--json] <command>
