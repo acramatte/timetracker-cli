@@ -13,7 +13,7 @@ test:
 	go test ./...
 
 acceptance:
-	go test -tags acceptance ./cmd/timetracker -run TestPomodoroCommandCompletesAtDeadline -count=1
+	go test -tags acceptance ./cmd/timetracker -run 'Test(CLIHelp|PomodoroCommandCompletesAtDeadline)' -count=1
 
 build:
 	go build -o $(BUILD_DIR)/$(BINARY) ./cmd/$(BINARY)

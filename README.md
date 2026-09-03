@@ -64,3 +64,34 @@ sidecars beside the live database; back up with the `backup` command rather
 than copying the live database or its sidecars manually. Recovery consists of
 restoring a backup to the configured data directory and letting the executable
 apply any newer embedded migrations on its next open.
+
+## Command reference
+
+Run `timetracker --help` or `timetracker help <command>` for the same reference
+from the binary. Global flags may be placed before the command:
+
+```text
+timetracker [--data-dir <dir>] [--json] <command>
+
+Commands:
+  init
+  status
+  start [--project <id>] [--replace] <description>
+  stop [--entry <id>] [--at <RFC3339>]
+  pomodoro start [--project <id>] [--minutes <N>] <description>
+  pomodoro stop [--entry <id>]
+  projects add [--color <#RRGGBB>] <name>
+  projects list [--all]
+  projects archive <project-id>
+  entries add [--start <RFC3339>] [--stop <RFC3339>] [--project <id>] [--pomodoro] <description>
+  entries edit [--description <text>] [--project <id>] [--start <RFC3339>] [--stop <RFC3339>] <entry-id>
+  entries list [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--project <id>] [--query <text>] [--status <state>]
+  report [--from <YYYY-MM-DD>] [--to <YYYY-MM-DD>] [--project <id>] [--query <text>] [--status <state>]
+  export csv [same filters] [--output <path>]
+  backup [--output <path>] <path>
+  doctor
+```
+
+`help` does not open the database, so it is safe to use before initialisation.
+The documented JSON command interface remains the machine-readable interface;
+help output is intended for people and agents inspecting command syntax.

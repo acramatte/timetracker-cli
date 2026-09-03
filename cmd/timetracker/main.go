@@ -26,6 +26,10 @@ func main() {
 // run parses global flags and dispatches the subcommand. Output contract
 // (spec §6.2): results to stdout, diagnostics to stderr, JSON in --json mode.
 func run(args []string) error {
+	if len(args) == 1 && (args[0] == "--help" || args[0] == "-h") {
+		return printHelp("")
+	}
+
 	fs := flag.NewFlagSet("timetracker", flag.ContinueOnError)
 	dataDir := fs.String("data-dir", "", "override the data directory")
 	jsonOut := fs.Bool("json", false, "emit machine-readable JSON on stdout")
@@ -34,10 +38,13 @@ func run(args []string) error {
 	}
 	rest := fs.Args()
 	if len(rest) == 0 {
-		return fmt.Errorf("no command given (try: init, status, start, stop, pomodoro, projects, entries, doctor)")
+		return printHelp("")
 	}
 
 	command, cmdArgs := rest[0], rest[1:]
+	if command == "help" {
+		return printHelp(strings.Join(cmdArgs, " "))
+	}
 
 	resolver := platform.NewResolver()
 	if *dataDir != "" {

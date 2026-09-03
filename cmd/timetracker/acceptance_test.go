@@ -13,6 +13,34 @@ import (
 	"time"
 )
 
+func TestCLIHelp(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "timetracker")
+	build := exec.Command("go", "build", "-o", binary, ".")
+	build.Dir = "."
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build CLI: %v\n%s", err, output)
+	}
+
+	checks := map[string][]string{
+		"--help":       {"Usage:", "Global flags:", "help [command]"},
+		"help entries": {"Usage: timetracker entries", "list entries", "--from"},
+		"help report":  {"Usage: timetracker report", "--status"},
+		"help export":  {"Usage: timetracker export csv", "--output"},
+		"help backup":  {"Usage: timetracker backup", "--output"},
+	}
+	for invocation, want := range checks {
+		result := runCLI(t, binary, strings.Fields(invocation)...)
+		for _, fragment := range want {
+			if !strings.Contains(result.stdout, fragment) {
+				t.Errorf("%s output does not contain %q:\n%s", invocation, fragment, result.stdout)
+			}
+		}
+		if result.stderr != "" {
+			t.Errorf("%s wrote diagnostics to stderr: %q", invocation, result.stderr)
+		}
+	}
+}
+
 func TestPomodoroCommandCompletesAtDeadline(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "timetracker")
 	build := exec.Command("go", "build", "-o", binary, ".")
