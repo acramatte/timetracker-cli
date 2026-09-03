@@ -59,11 +59,11 @@
 
 ## Milestone E — Release hardening
 
-- [ ] **E1** Add schema-upgrade fixtures covering every released migration path.
-- [ ] **E2** Add lock-contention and unexpected-interruption recovery tests.
-- [ ] **E3** Add platform release matrix and release smoke tests.
+- [x] **E1** Add schema-upgrade fixtures covering every released migration path. (The initial schema remains the only released version; re-open idempotency and forward-only Goose behavior are regression-tested.)
+- [x] **E2** Add lock-contention and unexpected-interruption recovery tests.
+- [x] **E3** Add platform release matrix and release smoke tests.
 - [ ] **E4** Add shell completion generation after command interfaces stabilise.
-- [ ] **E5** Publish command reference and agent integration examples.
+- [x] **E5** Publish command reference and agent integration examples. (Shipped with the CLI help reference on `feat/cli-help`; agent examples live in the README.)
 
 **Depends on:** D1 through D6
 **Acceptance references:** AT-32 through AT-39.
