@@ -73,7 +73,7 @@ func TestArchiveProjectKeepsHistory(t *testing.T) {
 	_, err = s.StopEntry(ctx, "e1", now)
 	require.NoError(t, err)
 
-	require.NoError(t, s.ArchiveProject(ctx, "p1"))
+	require.NoError(t, s.ArchiveProject(ctx, "p1", time.Now()))
 
 	all, err := s.ListProjects(ctx, true)
 	require.NoError(t, err)
@@ -91,7 +91,7 @@ func TestArchiveProjectKeepsHistory(t *testing.T) {
 
 func TestArchiveUnknownProjectIsNotFound(t *testing.T) {
 	s := testStore(t)
-	assert.True(t, errors.Is(s.ArchiveProject(context.Background(), "nope"), ErrNotFound))
+	assert.True(t, errors.Is(s.ArchiveProject(context.Background(), "nope", time.Now()), ErrNotFound))
 }
 
 func TestStartAndActiveEntry(t *testing.T) {
