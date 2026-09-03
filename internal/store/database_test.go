@@ -31,6 +31,18 @@ func TestOpenMigratesAndIsIdempotent(t *testing.T) {
 	assert.Equal(t, version, version2, "re-open must not re-apply or roll back migrations")
 }
 
+func TestOpenCreatesMissingDatabaseDirectory(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "nested", "data", "timetracker.db")
+
+	db, err := Open(ctx, dbPath)
+	require.NoError(t, err, "first-run open must create the platform data directory")
+	defer db.Close()
+
+	_, err = SchemaVersion(ctx, db)
+	require.NoError(t, err)
+}
+
 func TestOpenSetsWALMode(t *testing.T) {
 	ctx := context.Background()
 	db, err := Open(ctx, filepath.Join(t.TempDir(), "timetracker.db"))

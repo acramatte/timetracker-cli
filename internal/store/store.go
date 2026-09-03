@@ -259,6 +259,46 @@ func (s *Store) StopEntry(ctx context.Context, entryID string, stopAt time.Time)
 	return e, nil
 }
 
+// GetEntry fetches any entry (active or completed) by ID.
+func (s *Store) GetEntry(ctx context.Context, id string) (TimeEntry, error) {
+	row := s.DB.QueryRowContext(ctx, `
+		SELECT id, description, started_at, stopped_at, project_id, pomodoro,
+		       pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at
+		FROM time_entries WHERE id = ?`, id)
+	e, err := scanEntry(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return TimeEntry{}, ErrNotFound
+	}
+	if err != nil {
+		return TimeEntry{}, err
+	}
+	return e, nil
+}
+
+// UpdateEntry rewrites an existing entry's fields (task C10 edit path).
+// The ID must exist; updated_at is taken from the supplied entry.
+func (s *Store) UpdateEntry(ctx context.Context, e TimeEntry) (TimeEntry, error) {
+	res, err := s.DB.ExecContext(ctx, `
+		UPDATE time_entries
+		SET description = ?, started_at = ?, stopped_at = ?, project_id = ?,
+		    pomodoro = ?, pomodoro_duration_seconds = ?, pomodoro_ends_at = ?,
+		    updated_at = ?
+		WHERE id = ?`,
+		e.Description, e.StartedAt.UTC().Format(time.RFC3339), nullTimeString(e.StoppedAt),
+		e.ProjectID, boolToInt(e.Pomodoro), e.PomodoroDurationSeconds,
+		nullTimeString(e.PomodoroEndsAt), e.UpdatedAt.UTC().Format(time.RFC3339), e.ID)
+	if err != nil {
+		if strings.Contains(err.Error(), "one_active_time_entry") {
+			return TimeEntry{}, ErrActiveEntryExists
+		}
+		return TimeEntry{}, fmt.Errorf("update entry %s: %w", e.ID, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return TimeEntry{}, ErrNotFound
+	}
+	return e, nil
+}
+
 // scanner abstracts *sql.Row and *sql.Rows for shared row mapping.
 type scanner interface {
 	Scan(dest ...any) error
