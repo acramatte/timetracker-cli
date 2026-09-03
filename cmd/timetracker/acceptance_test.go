@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -51,6 +52,14 @@ func TestPomodoroCommandCompletesAtDeadline(t *testing.T) {
 
 	dataDir := t.TempDir()
 	runCLI(t, binary, "--data-dir", dataDir, "init")
+
+	// Regression guard: the --data-dir flag must control where the private
+	// database is created (the Cobra port once opened the default location
+	// instead, polluting the developer's real database).
+	dbPath := filepath.Join(dataDir, "timetracker.db")
+	if _, err := os.Stat(dbPath); err != nil {
+		t.Fatalf("init did not create the database in --data-dir %s: %v", dataDir, err)
+	}
 
 	startedAt := time.Now()
 	result := runCLI(t, binary,

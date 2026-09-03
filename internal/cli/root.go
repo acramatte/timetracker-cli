@@ -29,23 +29,35 @@ type session struct {
 }
 
 // services opens the database once per invocation and wires the services.
+// The --data-dir flag is applied here via the resolver, so every command
+// (not only init/doctor) honours the same precedence contract.
 func (s *session) services(ctx context.Context) error {
 	if s.store != nil {
 		return nil
 	}
 	resolver := platform.NewResolver()
-	if s.dataPath == "" {
-		dir, err := resolver.DataDir()
-		if err != nil {
-			return err
-		}
-		s.dataPath = dir
+	resolver.SetDataDirOverride(s.dataPath)
+	dir, err := resolver.DataDir()
+	if err != nil {
+		return err
 	}
+	s.dataPath = dir
 	db, err := store.Open(ctx, filepath.Join(s.dataPath, "timetracker.db"))
 	if err != nil {
 		return err
 	}
 	st := &store.Store{DB: db}
+	// Initialise is idempotent and never overwrites existing settings, so
+	// calling it on every open guarantees timezone and Pomodoro defaults
+	// exist without requiring an explicit init command.
+	tz := "Etc/UTC"
+	if local := time.Local.String(); local != "" && local != "Local" {
+		tz = local
+	}
+	if err := st.Initialise(ctx, tz); err != nil {
+		db.Close()
+		return err
+	}
 	s.store = st
 	s.tracking = &app.TrackingService{Store: st}
 	s.pomodoro = &app.PomodoroService{Store: st, Notifier: app.TerminalNotifier{Writer: os.Stderr}}
@@ -57,7 +69,6 @@ func (s *session) services(ctx context.Context) error {
 // NewRootCommand builds the timetracker command tree. SilenceErrors and
 // SilenceUsage keep output formatting in main's single error point.
 func NewRootCommand() *cobra.Command {
-	var dataDir string
 	var jsonOut bool
 
 	sess := &session{}
@@ -78,10 +89,12 @@ func NewRootCommand() *cobra.Command {
 			return usagef("unknown command %q for %q", args[0], cmd.CommandPath())
 		},
 	}
-	root.PersistentFlags().StringVar(&dataDir, "data-dir", "", "override the data directory")
+	// The flag writes straight into the session so services() applies the
+	// documented flag > env > platform-default precedence on first use.
+	root.PersistentFlags().StringVar(&sess.dataPath, "data-dir", "", "override the data directory")
 	root.PersistentFlags().BoolVar(&jsonOut, "json", false, "emit machine-readable JSON on stdout")
 
-	root.AddCommand(newInitCommand(sess, &dataDir),
+	root.AddCommand(newInitCommand(sess),
 		newStatusCommand(sess, &jsonOut),
 		newStartCommand(sess, &jsonOut),
 		newStopCommand(sess, &jsonOut),
@@ -91,7 +104,7 @@ func NewRootCommand() *cobra.Command {
 		newReportCommand(sess, &jsonOut),
 		newExportCommand(sess),
 		newBackupCommand(sess),
-		newDoctorCommand(sess, &dataDir))
+		newDoctorCommand(sess))
 	root.AddCommand(newCompletionCommand(root))
 	return root
 }
@@ -127,7 +140,7 @@ Install zsh completion with:
 	}
 }
 
-func newInitCommand(sess *session, dataDir *string) *cobra.Command {
+func newInitCommand(sess *session) *cobra.Command {
 	return &cobra.Command{
 		Use:   "init",
 		Short: "Initialise the local database",
@@ -138,17 +151,11 @@ func newInitCommand(sess *session, dataDir *string) *cobra.Command {
 			if err := sess.services(ctx); err != nil {
 				return fail(err)
 			}
-			if *dataDir != "" {
-				sess.dataPath = *dataDir
-			}
-			tz := "Etc/UTC"
-			if local := time.Local.String(); local != "" && local != "Local" {
-				tz = local
-			}
-			if err := sess.store.Initialise(ctx, tz); err != nil {
+			tz, err := sess.store.GetSetting(ctx, store.SettingTimezone)
+			if err != nil {
 				return fail(err)
 			}
-			fmt.Printf("initialised %s (timezone: %s)\n", sess.dataPath, tz)
+			fmt.Fprintf(cmd.OutOrStdout(), "initialised %s (timezone: %s)\n", sess.dataPath, tz)
 			return nil
 		},
 	}
@@ -170,31 +177,34 @@ func newStatusCommand(sess *session, jsonOut *bool) *cobra.Command {
 				return fail(err)
 			}
 			if e == nil {
+				w := cmd.OutOrStdout()
 				if *jsonOut {
-					fmt.Println(`{"active": null}`)
+					fmt.Fprintln(w, `{"active": null}`)
 				} else {
-					fmt.Println("no active entry")
+					fmt.Fprintln(w, "no active entry")
 				}
 				return nil
 			}
-			payload, err := app.MarshalActive(*e, nil)
+			payload, err := app.MarshalActive(e)
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("tracking %q since %s", e.Description, e.StartedAt.Format(time.RFC3339)))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("tracking %q since %s", e.Description, e.StartedAt.Format(time.RFC3339)))
 			return nil
 		},
 	}
 }
 
-// printJSONWith writes the JSON envelope to stdout in --json mode; otherwise
-// the human-readable line.
-func printJSONWith(jsonMode bool, payload, human string) {
+// printJSONWith writes the JSON envelope in --json mode; otherwise the
+// human-readable line. Output goes through the command's writer so tests
+// and callers can capture it.
+func printJSONWith(cmd *cobra.Command, jsonMode bool, payload, human string) {
+	w := cmd.OutOrStdout()
 	if jsonMode {
-		fmt.Println(payload)
+		fmt.Fprintln(w, payload)
 		return
 	}
-	fmt.Println(human)
+	fmt.Fprintln(w, human)
 }
 
 func newStartCommand(sess *session, jsonOut *bool) *cobra.Command {
@@ -220,7 +230,7 @@ func newStartCommand(sess *session, jsonOut *bool) *cobra.Command {
 				if err != nil {
 					return err
 				}
-				printJSONWith(*jsonOut, payload, fmt.Sprintf("replaced %s with %s", stopped.ID, started.ID))
+				printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("replaced %s with %s", stopped.ID, started.ID))
 				return nil
 			}
 			e, err := sess.tracking.Start(ctx, opts)
@@ -231,7 +241,7 @@ func newStartCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("started %s", e.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("started %s", e.ID))
 			return nil
 		},
 	}
@@ -268,7 +278,7 @@ func newStopCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("stopped %s", e.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("stopped %s", e.ID))
 			return nil
 		},
 	}
@@ -311,15 +321,18 @@ func newPomodoroStartCommand(sess *session, jsonOut *bool) *cobra.Command {
 				return fail(err)
 			}
 			if !*jsonOut {
-				fmt.Printf("pomodoro started %s\n", e.ID)
-				sess.pomodoro.Progress = func(remaining time.Duration) {
-					fmt.Printf("\rremaining %02d:%02d", int(remaining/time.Minute), int(remaining/time.Second)%60)
+				fmt.Fprintf(cmd.OutOrStdout(), "pomodoro started %s\n", e.ID)
+			}
+			var progress func(remaining time.Duration)
+			if !*jsonOut {
+				progress = func(remaining time.Duration) {
+					fmt.Fprintf(cmd.OutOrStdout(), "\rremaining %02d:%02d", int(remaining/time.Minute), int(remaining/time.Second)%60)
 					if remaining <= 0 {
 						fmt.Println()
 					}
 				}
 			}
-			completed, err := sess.pomodoro.RunDeadline(ctx, e)
+			completed, err := sess.pomodoro.RunDeadline(ctx, e, progress)
 			if err != nil {
 				return fail(err)
 			}
@@ -327,7 +340,7 @@ func newPomodoroStartCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("pomodoro complete %s", completed.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("pomodoro complete %s", completed.ID))
 			return nil
 		},
 	}
@@ -355,7 +368,7 @@ func newPomodoroStopCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("pomodoro stopped early %s", e.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("pomodoro stopped early %s", e.ID))
 			return nil
 		},
 	}
@@ -391,7 +404,7 @@ func newProjectsAddCommand(sess *session) *cobra.Command {
 			if err != nil {
 				return fail(err)
 			}
-			fmt.Printf("created project %s\n", proj.ID)
+			fmt.Fprintf(cmd.OutOrStdout(), "created project %s\n", proj.ID)
 			return nil
 		},
 	}
@@ -419,7 +432,7 @@ func newProjectsListCommand(sess *session) *cobra.Command {
 				if pr.Archived {
 					archived = " [archived]"
 				}
-				fmt.Printf("%s  %s%s\n", pr.ID, pr.Name, archived)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s%s\n", pr.ID, pr.Name, archived)
 			}
 			return nil
 		},
@@ -441,7 +454,7 @@ func newProjectsArchiveCommand(sess *session) *cobra.Command {
 			if err := sess.projects.Archive(ctx, args[0]); err != nil {
 				return fail(err)
 			}
-			fmt.Printf("archived %s\n", args[0])
+			fmt.Fprintf(cmd.OutOrStdout(), "archived %s\n", args[0])
 			return nil
 		},
 	}
@@ -491,7 +504,7 @@ func newEntriesAddCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("added entry %s", entry.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("added entry %s", entry.ID))
 			return nil
 		},
 	}
@@ -541,7 +554,7 @@ func newEntriesEditCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			printJSONWith(*jsonOut, payload, fmt.Sprintf("edited entry %s", entry.ID))
+			printJSONWith(cmd, *jsonOut, payload, fmt.Sprintf("edited entry %s", entry.ID))
 			return nil
 		},
 	}
@@ -568,7 +581,11 @@ func newEntriesListCommand(sess *session, jsonOut *bool) *cobra.Command {
 				return fail(err)
 			}
 			if *jsonOut {
-				return json.NewEncoder(os.Stdout).Encode(map[string]any{"entries": entries})
+				dtos := make([]app.EntryDTO, len(entries))
+				for i, result := range entries {
+					dtos[i] = app.ToDTO(result.Entry)
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(map[string]any{"entries": dtos})
 			}
 			for _, result := range entries {
 				entry := result.Entry
@@ -576,7 +593,7 @@ func newEntriesListCommand(sess *session, jsonOut *bool) *cobra.Command {
 				if entry.StoppedAt != nil {
 					end = entry.StoppedAt.UTC().Format(time.RFC3339)
 				}
-				fmt.Printf("%s  %s  %s  %s  %s\n", entry.ID, entry.StartedAt.UTC().Format(time.RFC3339), end, result.ProjectName, entry.Description)
+				fmt.Fprintf(cmd.OutOrStdout(), "%s  %s  %s  %s  %s\n", entry.ID, entry.StartedAt.UTC().Format(time.RFC3339), end, result.ProjectName, entry.Description)
 			}
 			return nil
 		},
@@ -600,15 +617,16 @@ func newReportCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return fail(err)
 			}
-			payload := map[string]any{
-				"count":                        report.Count,
-				"completed_duration_seconds":   report.CompletedDuration,
-				"completed_duration_formatted": formatReportDuration(report.CompletedDuration),
+			formatted := formatReportDuration(report.CompletedDuration)
+			payload := app.ReportEnvelope{
+				Count:                      report.Count,
+				CompletedDurationSeconds:   report.CompletedDuration,
+				CompletedDurationFormatted: formatted,
 			}
 			if *jsonOut {
-				return json.NewEncoder(os.Stdout).Encode(payload)
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(payload)
 			}
-			fmt.Printf("%d entries  %s completed\n", report.Count, payload["completed_duration_formatted"])
+			fmt.Fprintf(cmd.OutOrStdout(), "%d entries  %s completed\n", report.Count, formatted)
 			return nil
 		},
 	}
@@ -638,7 +656,7 @@ func newExportCommand(sess *session) *cobra.Command {
 				return fail(err)
 			}
 			if output == "-" {
-				if err := app.ExportCSV(ctx, sess.store, filters.values(), os.Stdout); err != nil {
+				if err := app.ExportCSV(ctx, sess.store, filters.values(), cmd.OutOrStdout()); err != nil {
 					return fail(err)
 				}
 				return nil
@@ -657,7 +675,7 @@ func newExportCommand(sess *session) *cobra.Command {
 			if err := app.ExportCSV(ctx, sess.store, filters.values(), out); err != nil {
 				return fail(err)
 			}
-			fmt.Fprintf(os.Stderr, "exported CSV to %s\n", output)
+			fmt.Fprintf(cmd.ErrOrStderr(), "exported CSV to %s\n", output)
 			return nil
 		},
 	}
@@ -691,7 +709,7 @@ func newBackupCommand(sess *session) *cobra.Command {
 			if err := sess.store.Backup(ctx, path); err != nil {
 				return fail(err)
 			}
-			fmt.Printf("backed up database to %s\n", path)
+			fmt.Fprintf(cmd.OutOrStdout(), "backed up database to %s\n", path)
 			return nil
 		},
 	}
@@ -699,7 +717,7 @@ func newBackupCommand(sess *session) *cobra.Command {
 	return cmd
 }
 
-func newDoctorCommand(sess *session, dataDir *string) *cobra.Command {
+func newDoctorCommand(sess *session) *cobra.Command {
 	return &cobra.Command{
 		Use:   "doctor",
 		Short: "Diagnose the local database",
@@ -709,9 +727,6 @@ func newDoctorCommand(sess *session, dataDir *string) *cobra.Command {
 			ctx := cmd.Context()
 			if err := sess.services(ctx); err != nil {
 				return fail(err)
-			}
-			if *dataDir != "" {
-				sess.dataPath = *dataDir
 			}
 			report := store.Doctor(ctx, sess.store)
 			out := map[string]any{
@@ -727,7 +742,7 @@ func newDoctorCommand(sess *session, dataDir *string) *cobra.Command {
 			if err != nil {
 				return err
 			}
-			fmt.Println(string(b))
+			fmt.Fprintln(cmd.OutOrStdout(), string(b))
 			if report.Err != nil {
 				return &ExitError{Code: app.ExitStorage, msg: report.Err.Error()}
 			}
