@@ -64,16 +64,15 @@ func MarshalEntryEnvelope(e store.TimeEntry) (string, error) {
 	return string(b), nil
 }
 
-// MarshalActive encodes the status response.
-func MarshalActive(e store.TimeEntry, err error) (string, error) {
-	if err != nil {
-		if err == store.ErrNoActiveEntry {
-			return `{"active": null}`, nil
-		}
-		return "", err
+// MarshalActive encodes the status response: a literal null active field
+// when no entry is active.
+func MarshalActive(e *store.TimeEntry) (string, error) {
+	envelope := ActiveEnvelope{}
+	if e != nil {
+		dto := ToDTO(*e)
+		envelope.Active = &dto
 	}
-	dto := ToDTO(e)
-	b, err := json.Marshal(ActiveEnvelope{Active: &dto})
+	b, err := json.Marshal(envelope)
 	if err != nil {
 		return "", fmt.Errorf("encode status: %w", err)
 	}

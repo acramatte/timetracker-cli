@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/acramatte/timetracker-cli/internal/store"
@@ -17,9 +18,6 @@ type PomodoroService struct {
 	Now func() time.Time
 	// Notifier is attempted once at deadline; failure is non-fatal (§6.1).
 	Notifier Notifier
-	// Progress receives remaining time updates from the foreground runner.
-	// It is nil for callers that do not need display updates (including tests).
-	Progress func(remaining time.Duration)
 	// DefaultMinutes is read from settings at first use if nil.
 	DefaultMinutes int
 }
@@ -62,15 +60,14 @@ func (p *PomodoroService) defaultMinutes(ctx context.Context) int {
 	if err != nil || v == "" {
 		return store.DefaultPomodoroMinutes
 	}
-	mins := store.DefaultPomodoroMinutes
-	fmt.Sscanf(v, "%d", &mins)
-	if mins <= 0 {
+	mins, err := strconv.Atoi(v)
+	if err != nil || mins <= 0 {
 		return store.DefaultPomodoroMinutes
 	}
 	return mins
 }
 
-// StartOptions carries validated pomodoro inputs.
+// PomodoroStartOptions carries validated pomodoro inputs.
 type PomodoroStartOptions struct {
 	Description string
 	ProjectID   string
@@ -145,7 +142,8 @@ func (p *PomodoroService) ReconcileOverdue(ctx context.Context) (*store.TimeEntr
 
 // RunDeadline fires the notification when a foreground runner observes the
 // scheduled end (task C7). Completion is durable before notification.
-func (p *PomodoroService) RunDeadline(ctx context.Context, e store.TimeEntry) (store.TimeEntry, error) {
+// progress, when non-nil, receives remaining-time updates.
+func (p *PomodoroService) RunDeadline(ctx context.Context, e store.TimeEntry, progress func(remaining time.Duration)) (store.TimeEntry, error) {
 	if e.PomodoroEndsAt == nil {
 		return store.TimeEntry{}, fmt.Errorf("%w: entry %s has no scheduled end", ErrValidation, e.ID)
 	}
@@ -156,8 +154,8 @@ func (p *PomodoroService) RunDeadline(ctx context.Context, e store.TimeEntry) (s
 	if remaining > 0 {
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		if p.Progress != nil {
-			p.Progress(remaining)
+		if progress != nil {
+			progress(remaining)
 		}
 		for {
 			select {
@@ -166,13 +164,13 @@ func (p *PomodoroService) RunDeadline(ctx context.Context, e store.TimeEntry) (s
 			case <-ticker.C:
 				remaining = time.Until(*e.PomodoroEndsAt)
 				if remaining <= 0 {
-					if p.Progress != nil {
-						p.Progress(0)
+					if progress != nil {
+						progress(0)
 					}
 					goto deadline
 				}
-				if p.Progress != nil {
-					p.Progress(remaining)
+				if progress != nil {
+					progress(remaining)
 				}
 			}
 		}

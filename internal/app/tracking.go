@@ -82,14 +82,41 @@ func (t *TrackingService) Stop(ctx context.Context, entryID string, at *time.Tim
 			return store.TimeEntry{}, fmt.Errorf("%w: --at is more than 24h in the past", ErrValidation)
 		}
 	}
+
+	// Validate the resulting range before mutating so a bad --at surfaces
+	// as a validation error (exit 2), not a storage CHECK violation (exit 5).
+	if entryID != "" {
+		e, err := t.Store.GetEntry(ctx, entryID)
+		if err != nil {
+			return store.TimeEntry{}, err
+		}
+		if err := validateRange(e.StartedAt, stopAt); err != nil {
+			return store.TimeEntry{}, fmt.Errorf("%w: entry %s %v", ErrValidation, entryID, err)
+		}
+	} else if e, err := t.Store.ActiveEntry(ctx); err == nil {
+		if err := validateRange(e.StartedAt, stopAt); err != nil {
+			return store.TimeEntry{}, fmt.Errorf("%w: active entry %s %v", ErrValidation, e.ID, err)
+		}
+	}
+
 	return t.Store.StopEntry(ctx, entryID, stopAt)
 }
 
-// Replace atomically closes the active entry and starts a new one
-// (spec §9.6: both steps in one transaction at the store level would be
-// ideal; here the window is the store's two statements — the invariant
-// still holds because a failed insert leaves the old entry active).
+// Replace validates the new entry's inputs first, then closes the active
+// entry and starts the new one. Validation runs before any mutation so a
+// rejected replacement never leaves the previous entry stopped (spec §9.6).
 func (t *TrackingService) Replace(ctx context.Context, opts StartOptions) (store.TimeEntry, store.TimeEntry, error) {
+	// Pre-flight validation: description and project must be accepted for
+	// the new entry before the old one is touched.
+	desc, err := normalizeDescription(opts.Description)
+	if err != nil {
+		return store.TimeEntry{}, store.TimeEntry{}, err
+	}
+	projectID, err := resolveProject(ctx, t.Store, opts.ProjectID)
+	if err != nil {
+		return store.TimeEntry{}, store.TimeEntry{}, err
+	}
+
 	old, err := t.Store.ActiveEntry(ctx)
 	if err != nil {
 		return store.TimeEntry{}, store.TimeEntry{}, err // ErrNoActiveEntry propagates
@@ -101,7 +128,18 @@ func (t *TrackingService) Replace(ctx context.Context, opts StartOptions) (store
 		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
 
-	started, err := t.Start(ctx, opts)
+	id, err := newID()
+	if err != nil {
+		return stopped, store.TimeEntry{}, err
+	}
+	started, err := t.Store.StartEntry(ctx, store.TimeEntry{
+		ID:          id,
+		Description: desc,
+		StartedAt:   now,
+		ProjectID:   projectID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	})
 	if err != nil {
 		return stopped, store.TimeEntry{}, err
 	}

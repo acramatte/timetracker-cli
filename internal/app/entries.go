@@ -2,7 +2,6 @@ package app
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/acramatte/timetracker-cli/internal/store"
@@ -129,4 +128,9 @@ func (e *EntriesService) Edit(ctx context.Context, id string, opts EditOptions) 
 	})
 }
 
-var _ = fmt.Sprintf // keep fmt import if unused in future edits
+// ReportEnvelope is the report response shape (stable keys for --json).
+type ReportEnvelope struct {
+	Count                      int    `json:"count"`
+	CompletedDurationSeconds   int64  `json:"completed_duration_seconds"`
+	CompletedDurationFormatted string `json:"completed_duration_formatted"`
+}

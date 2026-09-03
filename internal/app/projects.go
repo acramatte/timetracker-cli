@@ -22,7 +22,7 @@ func (p *ProjectsService) now() time.Time {
 	return time.Now()
 }
 
-// AddProjectOptions carries validated project inputs.
+// AddOptions carries validated project inputs (used by ProjectsService.Add).
 type AddOptions struct {
 	Name  string
 	Color string
@@ -58,5 +58,5 @@ func (p *ProjectsService) List(ctx context.Context, includeArchived bool) ([]sto
 
 // Archive marks a project archived (spec §9.5: history untouched).
 func (p *ProjectsService) Archive(ctx context.Context, id string) error {
-	return p.Store.ArchiveProject(ctx, id)
+	return p.Store.ArchiveProject(ctx, id, p.now())
 }
