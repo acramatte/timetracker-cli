@@ -9,6 +9,8 @@ Build vertically from durable local storage to agent-safe commands, then reporti
 
 ## Phase 0 — Foundation decisions and repository setup
 
+### Status: implemented on `feat/phase-0-foundation` (PR #1); migrations fix (`cec1bb8`) included.
+
 ### Outcome
 
 A Go project can build a single local executable and has a documented technical baseline.
@@ -37,7 +39,9 @@ A Go project can build a single local executable and has a documented technical 
 
 ### Outcome
 
-The application creates and migrates a private local database whose schema enforces the key domain invariants.
+The application creates and migrates a private local database whose schema enforces the key domain invariants, and exposes a typed repository boundary for all future commands.
+
+### Status: implemented on `feat/phase-1-domain-core` (PR #2, stacked on PR #1)
 
 ### Work
 
