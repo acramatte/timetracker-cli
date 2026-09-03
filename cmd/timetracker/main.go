@@ -4,6 +4,8 @@ package main
 import (
 	"fmt"
 	"os"
+
+	"github.com/acramatte/timetracker-cli/internal/cli"
 )
 
 func main() {
@@ -13,9 +15,10 @@ func main() {
 	}
 }
 
-// run is the testable entry point. Phase 0 provides no commands yet;
-// subsequent phases wire argument parsing and use cases here.
+// run is the testable entry point. It delegates argument parsing and
+// dispatch to the Cobra command tree.
 func run(args []string) error {
-	_ = args
-	return nil
+	root := cli.NewRootCommand()
+	root.SetArgs(args)
+	return root.Execute()
 }
