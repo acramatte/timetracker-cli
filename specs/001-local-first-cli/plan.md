@@ -1,7 +1,7 @@
 # Local-First TimeTracker CLI — Delivery Plan
 
-**Status:** Proposed
-**Implementation status:** No code has been started.
+**Status:** Phase 3 implemented; remaining phases are proposed.
+**Implementation status:** Phases 0 through 3 are implemented on stacked feature branches.
 
 ## Delivery strategy
 
@@ -90,6 +90,8 @@ Agents can manage active work and projects entirely through non-interactive comm
 
 ## Phase 3 — Search, reporting, export, and backup
 
+### Status: implemented on `feat/phase-3-reporting` (stacked on Phase 2; PR pending).
+
 ### Outcome
 
 A caller can trust the CLI to retrieve, total, export, and protect local time data.
@@ -102,7 +104,6 @@ A caller can trust the CLI to retrieve, total, export, and protect local time da
 4. Implement standards-compliant CSV export using the same filters.
 5. Implement a SQLite-consistent backup command.
 6. Add a structured diagnostic report for corruption, migration, and permission failures.
-7. Design a JSON export format, even if its CLI command ships in a subsequent small release.
 
 ### Exit criteria
 

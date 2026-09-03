@@ -1,6 +1,6 @@
 # Local-First TimeTracker CLI — Acceptance Test Plan
 
-**Status:** Proposed
+**Status:** Phase 3 scenarios have unit, integration, and CLI smoke evidence; full release coverage remains proposed.
 **Purpose:** Define observable behavior before implementation. These are acceptance scenarios, not test code.
 
 ## Test conventions
