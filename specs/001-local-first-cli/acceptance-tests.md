@@ -1,6 +1,6 @@
 # Local-First TimeTracker CLI — Acceptance Test Plan
 
-**Status:** Proposed
+**Status:** Phase 3 scenarios have unit, integration, and CLI smoke evidence; full release coverage remains proposed.
 **Purpose:** Define observable behavior before implementation. These are acceptance scenarios, not test code.
 
 ## Test conventions
@@ -30,7 +30,7 @@
 | AT-08 | Persistence | A project and completed entry are created; the command exits; a new command lists entries. | The entry and its project remain present. |
 | AT-09 | Required description | A caller starts or adds an entry with empty or whitespace-only description. | The command fails; no entry is created. |
 | AT-10 | Valid time range | A caller adds or edits an entry with a stop instant before its start instant. | The command fails; the previous record remains unchanged. |
-| AT-11 | One active entry | Two start operations race against a database with no active entry. | Exactly one succeeds; exactly one active entry exists afterwards. |
+| AT-11 | One active entry | Two start operations race against a database with no active entry. | Exactly one succeeds; exactly one active entry exists afterwards. Automated: eight concurrent repository starts produce exactly one win and seven conflict-category failures. |
 | AT-12 | WAL coexistence | A read command overlaps an ordinary completed-entry write. | Both commands complete within the configured contention policy; the database remains consistent. |
 
 ## C. Projects
@@ -87,8 +87,8 @@
 | ID | Scenario | Given / When | Then |
 |---|---|---|---|
 | AT-37 | Migration upgrade | A fixture database at every previously released schema version is opened by the current executable with no external migration tool installed. | Its embedded Goose migrations apply forward, preserve entries/projects/settings, and pass `doctor`. |
-| AT-38 | Interrupted command recovery | A process is terminated during an ordinary mutation in a controlled test. | On the next open, SQLite recovers to an all-or-nothing durable state with no invariant violation. |
-| AT-39 | Release smoke test | Each supported-platform release artifact uses an isolated data directory to initialise, add a project, start/stop, report, export, back up, and diagnose. | The complete flow succeeds without network access or a separate database process. |
+| AT-38 | Interrupted command recovery | A process is terminated during an ordinary mutation in a controlled test. | On the next open, SQLite recovers to an all-or-nothing durable state with no invariant violation. Automated: an uncommitted half-written insert disappears on reopen while committed data and the one-active index survive. |
+| AT-39 | Release smoke test | Each supported-platform release artifact uses an isolated data directory to initialise, add a project, start/stop, report, export, back up, and diagnose. | The complete flow succeeds without network access or a separate database process. Automated: `scripts/release-smoke.sh` runs the host flow and cross-compiles linux/amd64, linux/arm64, darwin/arm64, windows/amd64 artifacts, wired as the `release-smoke` CI job. |
 
 ## I. Pomodoro lifecycle and notification
 
@@ -97,6 +97,7 @@
 | AT-43 | Default duration | No active entry exists and `pomodoro start` is invoked without `--minutes`. | It creates one active Pomodoro with a planned duration of 30 minutes and scheduled end equal to start plus that duration. |
 | AT-44 | Duration override | No active entry exists and `pomodoro start --minutes <N>` is invoked with a positive duration. | The persisted duration and scheduled end use exactly `<N>` minutes. |
 | AT-45 | Foreground completion | A Pomodoro foreground runner reaches its scheduled end. | It completes the entry at the stored scheduled end, reports completion, and attempts one notification. |
+| AT-45a | Real CLI foreground completion | The compiled CLI is run with an isolated data directory and `pomodoro start --minutes 1`. | The subprocess remains foreground until the deadline, exits successfully, leaves no active entry, and JSON stdout contains only the completed entry. This is a tagged, slower acceptance test. |
 | AT-46 | Early stop | A Pomodoro is active and `pomodoro stop` is called before the scheduled end. | The entry is completed at the explicit or current stop instant and the foreground runner exits without an expiry notification. |
 | AT-47 | Safe conflict and replace | A Pomodoro is active and a caller starts another timer. | Ordinary start fails safely; only explicit `--replace` can atomically close the original and create the replacement. |
 | AT-48 | Interrupted-process recovery | A Pomodoro process exits before its deadline; a later command runs after the deadline. | The later command reconciles the entry at its stored scheduled end, does not extend its duration, and does not replay a missed notification. |
@@ -110,6 +111,12 @@
 | AT-41 | TUI conflict safety | An entry is already active before a TUI start action. | The TUI surfaces the same safe conflict as `start`; it does not silently replace the entry. |
 | AT-42 | TUI-free operation | The TUI dependencies or terminal capabilities are unavailable. | All version 1 CLI workflows remain functional and unchanged. |
 
+## K. Help and command discovery
+
+| ID | Scenario | Given / When | Then |
+|---|---|---|---|
+| AT-50 | Command help reference | A compiled CLI is run with `--help` and with `help entries`, `help report`, `help export`, and `help backup`. | Each command exits successfully without opening a database; stdout contains consistent usage text and the relevant command flags; stderr is empty. |
+
 ## Definition of done for v1
 
-Version 1 is acceptable when AT-01 through AT-39 and AT-43 through AT-49 are automated where practical, remaining platform-specific checks have recorded evidence, and all user-visible behavior matches `spec.md`. AT-40 through AT-42 apply only if the optional TUI milestone is accepted.
+Version 1 is acceptable when AT-01 through AT-39, AT-43 through AT-50 are automated where practical, remaining platform-specific checks have recorded evidence, and all user-visible behavior matches `spec.md`. AT-40 through AT-42 apply only if the optional TUI milestone is accepted.

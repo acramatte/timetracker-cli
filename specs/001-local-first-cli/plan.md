@@ -1,13 +1,15 @@
 # Local-First TimeTracker CLI — Delivery Plan
 
-**Status:** Proposed
-**Implementation status:** No code has been started.
+**Status:** Phase 3 implemented; remaining phases are proposed.
+**Implementation status:** Phases 0 through 3 are implemented on stacked feature branches.
 
 ## Delivery strategy
 
 Build vertically from durable local storage to agent-safe commands, then reporting/backup, and only then optional interactive presentation. Each phase has an independently demonstrable outcome.
 
 ## Phase 0 — Foundation decisions and repository setup
+
+### Status: implemented on `feat/phase-0-foundation` (PR #1); migrations fix (`cec1bb8`) included.
 
 ### Outcome
 
@@ -37,7 +39,9 @@ A Go project can build a single local executable and has a documented technical 
 
 ### Outcome
 
-The application creates and migrates a private local database whose schema enforces the key domain invariants.
+The application creates and migrates a private local database whose schema enforces the key domain invariants, and exposes a typed repository boundary for all future commands.
+
+### Status: implemented on `feat/phase-1-domain-core` (PR #2, stacked on PR #1)
 
 ### Work
 
@@ -57,6 +61,8 @@ The application creates and migrates a private local database whose schema enfor
 - Path overrides are deterministic and isolated for tests.
 
 ## Phase 2 — Agent-first tracking and project commands
+
+### Status: implemented on `feat/phase-2-commands` (PR #3, stacked on PR #2). Shell completion generation deferred to Phase 4 (E4) per task order.
 
 ### Outcome
 
@@ -84,6 +90,8 @@ Agents can manage active work and projects entirely through non-interactive comm
 
 ## Phase 3 — Search, reporting, export, and backup
 
+### Status: implemented on `feat/phase-3-reporting` (stacked on Phase 2; PR pending).
+
 ### Outcome
 
 A caller can trust the CLI to retrieve, total, export, and protect local time data.
@@ -96,7 +104,6 @@ A caller can trust the CLI to retrieve, total, export, and protect local time da
 4. Implement standards-compliant CSV export using the same filters.
 5. Implement a SQLite-consistent backup command.
 6. Add a structured diagnostic report for corruption, migration, and permission failures.
-7. Design a JSON export format, even if its CLI command ships in a subsequent small release.
 
 ### Exit criteria
 
@@ -105,6 +112,8 @@ A caller can trust the CLI to retrieve, total, export, and protect local time da
 - Backup/restoration is demonstrated against a known fixture database.
 
 ## Phase 4 — Hardening and distribution
+
+### Status: hardening coverage implemented on `feat/phase-4-hardening` (stacked on `feat/cli-help`); shell completions (E4) remain open pending a library spike.
 
 ### Outcome
 
@@ -118,6 +127,10 @@ The tool is ready for ordinary local installation and unattended agent use.
 4. Add command reference, examples, recovery guide, and data-location documentation.
 5. Add a release smoke-test script that uses an isolated data directory.
 6. Verify that uninstall guidance preserves user data.
+
+Uninstall guidance: the CLI never deletes user data automatically; removing the
+binary leaves the data directory intact for manual cleanup, documented in the
+README's data-location table.
 
 ### Exit criteria
 

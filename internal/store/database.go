@@ -8,6 +8,8 @@ import (
 	"database/sql"
 	"embed"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"github.com/pressly/goose/v3"
 	_ "modernc.org/sqlite"
@@ -24,6 +26,9 @@ const busyTimeoutMS = 5000
 // migrations, and returns a *sql.DB configured for CLI use.
 // Opening is idempotent: re-opening an up-to-date database is a no-op.
 func Open(ctx context.Context, path string) (*sql.DB, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, fmt.Errorf("create database directory: %w", err)
+	}
 	dsn := fmt.Sprintf("file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)", path, busyTimeoutMS)
 
 	db, err := sql.Open("sqlite", dsn)
