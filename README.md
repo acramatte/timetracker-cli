@@ -19,8 +19,7 @@ backup, and release-hardening coverage. The optional TUI phase remains.
 
 ## Development
 
-Requires Go 1.27+. Staticcheck is pinned in `go.mod` and runs through the Go
-toolchain, so it does not require a separate installation.
+Requires Go 1.27+.
 
 ```bash
 make fmt        # rewrite Go files with gofmt
