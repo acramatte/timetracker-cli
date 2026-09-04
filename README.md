@@ -22,11 +22,13 @@ backup, and release-hardening coverage. The optional TUI phase remains.
 Requires Go 1.27+.
 
 ```bash
-make fmt      # gofmt
-make vet      # go vet
-make test     # go test ./...
-make build    # ./bin/timetracker
-make check    # fmt + vet + test
+make fmt        # rewrite Go files with gofmt
+make fmt-check  # verify formatting without modifying files
+make vet        # go vet
+make lint       # go vet + pinned staticcheck
+make test       # go test ./...
+make build      # ./bin/timetracker
+make check      # fmt-check + lint + test + build
 ```
 
 The SQLite driver is pure Go (`modernc.org/sqlite`, ADR 0001); no CGO

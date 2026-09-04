@@ -76,34 +76,52 @@ func (t *TrackingService) Stop(ctx context.Context, entryID string, at *time.Tim
 	stopAt := t.now().UTC().Truncate(time.Second)
 	if at != nil {
 		stopAt = at.UTC()
-		if stopAt.Before(t.now().Add(-24 * time.Hour)) {
-			// Guard against obviously wrong backdated stops; the spec
-			// allows --at for corrections but not years in the past.
-			return store.TimeEntry{}, fmt.Errorf("%w: --at is more than 24h in the past", ErrValidation)
+	}
+
+	// Validate the resulting range before mutating so a bad --at surfaces
+	// as a validation error (exit 2), not a storage CHECK violation (exit 5).
+	if entryID != "" {
+		e, err := t.Store.GetEntry(ctx, entryID)
+		if err != nil {
+			return store.TimeEntry{}, err
+		}
+		if err := validateRange(e.StartedAt, stopAt); err != nil {
+			return store.TimeEntry{}, fmt.Errorf("%w: entry %s %v", ErrValidation, entryID, err)
+		}
+	} else if e, err := t.Store.ActiveEntry(ctx); err == nil {
+		if err := validateRange(e.StartedAt, stopAt); err != nil {
+			return store.TimeEntry{}, fmt.Errorf("%w: active entry %s %v", ErrValidation, e.ID, err)
 		}
 	}
+
 	return t.Store.StopEntry(ctx, entryID, stopAt)
 }
 
-// Replace atomically closes the active entry and starts a new one
-// (spec §9.6: both steps in one transaction at the store level would be
-// ideal; here the window is the store's two statements — the invariant
-// still holds because a failed insert leaves the old entry active).
+// Replace validates the new entry's inputs, then atomically closes the active
+// entry and starts the new one in a single store transaction (spec §9.6).
 func (t *TrackingService) Replace(ctx context.Context, opts StartOptions) (store.TimeEntry, store.TimeEntry, error) {
-	old, err := t.Store.ActiveEntry(ctx)
+	// Pre-flight validation: description and project must be accepted for
+	// the new entry before the store transaction starts.
+	desc, err := normalizeDescription(opts.Description)
 	if err != nil {
-		return store.TimeEntry{}, store.TimeEntry{}, err // ErrNoActiveEntry propagates
+		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
-
-	now := t.now().UTC().Truncate(time.Second)
-	stopped, err := t.Store.StopEntry(ctx, old.ID, now)
+	projectID, err := resolveProject(ctx, t.Store, opts.ProjectID)
 	if err != nil {
 		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
 
-	started, err := t.Start(ctx, opts)
+	now := t.now().UTC().Truncate(time.Second)
+	id, err := newID()
 	if err != nil {
-		return stopped, store.TimeEntry{}, err
+		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
-	return stopped, started, nil
+	return t.Store.ReplaceEntry(ctx, store.TimeEntry{
+		ID:          id,
+		Description: desc,
+		StartedAt:   now,
+		ProjectID:   projectID,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}, now)
 }

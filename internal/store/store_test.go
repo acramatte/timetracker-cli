@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -73,7 +72,11 @@ func TestArchiveProjectKeepsHistory(t *testing.T) {
 	_, err = s.StopEntry(ctx, "e1", now)
 	require.NoError(t, err)
 
-	require.NoError(t, s.ArchiveProject(ctx, "p1"))
+	archiveAt := now.Add(time.Hour).Truncate(time.Second)
+	archived, err := s.ArchiveProject(ctx, "p1", archiveAt)
+	require.NoError(t, err)
+	assert.True(t, archived.Archived)
+	assert.Equal(t, archiveAt, archived.UpdatedAt)
 
 	all, err := s.ListProjects(ctx, true)
 	require.NoError(t, err)
@@ -91,7 +94,8 @@ func TestArchiveProjectKeepsHistory(t *testing.T) {
 
 func TestArchiveUnknownProjectIsNotFound(t *testing.T) {
 	s := testStore(t)
-	assert.True(t, errors.Is(s.ArchiveProject(context.Background(), "nope"), ErrNotFound))
+	_, err := s.ArchiveProject(context.Background(), "nope", time.Now())
+	assert.ErrorIs(t, err, ErrNotFound)
 }
 
 func TestStartAndActiveEntry(t *testing.T) {
@@ -188,6 +192,75 @@ func TestPomodoroFieldsRoundTrip(t *testing.T) {
 	assert.Equal(t, int64(1800), *active.PomodoroDurationSeconds)
 	require.NotNil(t, active.PomodoroEndsAt)
 	assert.True(t, active.PomodoroEndsAt.Equal(ends.Truncate(time.Second)))
+}
+
+func TestReplaceEntryRollsBackStopWhenInsertFails(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	now := time.Now().UTC().Truncate(time.Second)
+
+	_, err := s.StartEntry(ctx, entry("e1", "protected", now.Add(-time.Hour)))
+	require.NoError(t, err)
+	_, err = s.DB.ExecContext(ctx, `
+		CREATE TRIGGER fail_replacement
+		BEFORE INSERT ON time_entries
+		WHEN NEW.id = 'e2'
+		BEGIN
+			SELECT RAISE(FAIL, 'forced replacement failure');
+		END`)
+	require.NoError(t, err)
+
+	_, _, err = s.ReplaceEntry(ctx, entry("e2", "replacement", now), now)
+	require.Error(t, err)
+
+	active, err := s.ActiveEntry(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "e1", active.ID)
+	assert.Nil(t, active.StoppedAt, "failed replacement must roll the stop back")
+}
+
+func TestListEntriesMapsEveryEntryField(t *testing.T) {
+	s := testStore(t)
+	ctx := context.Background()
+	createdAt := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	updatedAt := createdAt.Add(4 * time.Hour)
+	startedAt := createdAt.Add(time.Hour)
+	stoppedAt := startedAt.Add(2 * time.Hour)
+	pomodoroEndsAt := startedAt.Add(25 * time.Minute)
+	duration := int64(1500)
+	projectID := "p-map"
+
+	_, err := s.CreateProject(ctx, Project{
+		ID: projectID, Name: "mapped project", CreatedAt: createdAt, UpdatedAt: createdAt,
+	})
+	require.NoError(t, err)
+	_, err = s.StartEntry(ctx, TimeEntry{
+		ID: "e-map", Description: "mapped entry", StartedAt: startedAt,
+		StoppedAt: &stoppedAt, ProjectID: &projectID, Pomodoro: true,
+		PomodoroDurationSeconds: &duration, PomodoroEndsAt: &pomodoroEndsAt,
+		CreatedAt: createdAt, UpdatedAt: updatedAt,
+	})
+	require.NoError(t, err)
+
+	results, err := s.ListEntries(ctx, EntryFilter{})
+	require.NoError(t, err)
+	require.Len(t, results, 1)
+	result := results[0]
+	assert.Equal(t, "mapped project", result.ProjectName)
+	assert.Equal(t, "e-map", result.Entry.ID)
+	assert.Equal(t, "mapped entry", result.Entry.Description)
+	assert.Equal(t, startedAt, result.Entry.StartedAt)
+	require.NotNil(t, result.Entry.StoppedAt)
+	assert.Equal(t, stoppedAt, *result.Entry.StoppedAt)
+	require.NotNil(t, result.Entry.ProjectID)
+	assert.Equal(t, projectID, *result.Entry.ProjectID)
+	assert.True(t, result.Entry.Pomodoro)
+	require.NotNil(t, result.Entry.PomodoroDurationSeconds)
+	assert.Equal(t, duration, *result.Entry.PomodoroDurationSeconds)
+	require.NotNil(t, result.Entry.PomodoroEndsAt)
+	assert.Equal(t, pomodoroEndsAt, *result.Entry.PomodoroEndsAt)
+	assert.Equal(t, createdAt, result.Entry.CreatedAt)
+	assert.Equal(t, updatedAt, result.Entry.UpdatedAt)
 }
 
 func TestDescriptionConstraint(t *testing.T) {

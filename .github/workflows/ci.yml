@@ -26,6 +26,9 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Staticcheck
+        run: go tool staticcheck -checks 'all,-ST1000,-ST1003,-ST1020' ./...
+
       - name: Test
         run: go test ./... -v
 

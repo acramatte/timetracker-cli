@@ -105,18 +105,21 @@ func (s *Store) ProjectExists(ctx context.Context, id string) (bool, error) {
 }
 
 // ArchiveProject marks a project archived; historical entries keep their
-// project identity (spec §9.5). Returns ErrNotFound for unknown IDs.
-func (s *Store) ArchiveProject(ctx context.Context, id string) error {
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE projects SET archived = 1, updated_at = ? WHERE id = ?`,
-		time.Now().UTC().Format(time.RFC3339), id)
+// project identity (spec §9.5). Returns ErrNotFound for unknown IDs. The
+// caller supplies updatedAt so tests can inject the clock.
+func (s *Store) ArchiveProject(ctx context.Context, id string, updatedAt time.Time) (Project, error) {
+	persistedAt := updatedAt.UTC().Truncate(time.Second)
+	project, err := scanProject(s.DB.QueryRowContext(ctx, `
+		UPDATE projects SET archived = 1, updated_at = ? WHERE id = ?
+		RETURNING id, name, color, archived, created_at, updated_at`,
+		persistedAt.Format(time.RFC3339), id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("archive project %s: %w", id, err)
+		return Project{}, fmt.Errorf("archive project %s: %w", id, err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return project, nil
 }
 
 // StartEntry creates a new active entry. The single-active-entry invariant
@@ -129,19 +132,8 @@ func (s *Store) StartEntry(ctx context.Context, e TimeEntry) (TimeEntry, error) 
 	}
 	defer tx.Rollback()
 
-	stoppedAt := nullTimeString(e.StoppedAt)
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO time_entries
-			(id, description, started_at, stopped_at, project_id, pomodoro,
-			 pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.Description, e.StartedAt.UTC().Format(time.RFC3339), stoppedAt,
-		e.ProjectID, boolToInt(e.Pomodoro),
-		e.PomodoroDurationSeconds, nullTimeString(e.PomodoroEndsAt),
-		e.CreatedAt.UTC().Format(time.RFC3339), e.UpdatedAt.UTC().Format(time.RFC3339))
-	if err != nil {
-		if strings.Contains(err.Error(), "one_active_time_entry") ||
-			strings.Contains(err.Error(), "UNIQUE constraint failed") {
+	if err := insertEntry(ctx, tx, e); err != nil {
+		if strings.Contains(err.Error(), "one_active_time_entry") {
 			return TimeEntry{}, ErrActiveEntryExists
 		}
 		return TimeEntry{}, fmt.Errorf("insert active entry: %w", err)
@@ -151,6 +143,57 @@ func (s *Store) StartEntry(ctx context.Context, e TimeEntry) (TimeEntry, error) 
 		return TimeEntry{}, fmt.Errorf("commit start: %w", err)
 	}
 	return e, nil
+}
+
+// ReplaceEntry closes the current active entry and inserts replacement in one
+// transaction, so an insertion failure rolls the stop back rather than leaving
+// the previous entry closed.
+func (s *Store) ReplaceEntry(ctx context.Context, replacement TimeEntry, stopAt time.Time) (TimeEntry, TimeEntry, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("begin replace transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stoppedAt := stopAt.UTC().Truncate(time.Second)
+	old, err := scanEntry(tx.QueryRowContext(ctx, `
+		UPDATE time_entries
+		SET stopped_at = ?, updated_at = ?
+		WHERE stopped_at IS NULL
+		RETURNING id, description, started_at, stopped_at, project_id, pomodoro,
+		          pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at`,
+		stoppedAt.Format(time.RFC3339), stoppedAt.Format(time.RFC3339)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return TimeEntry{}, TimeEntry{}, ErrNoActiveEntry
+	}
+	if err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("stop active entry for replace: %w", err)
+	}
+
+	if err := insertEntry(ctx, tx, replacement); err != nil {
+		if strings.Contains(err.Error(), "one_active_time_entry") {
+			return TimeEntry{}, TimeEntry{}, ErrActiveEntryExists
+		}
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("insert replacement entry: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("commit replace: %w", err)
+	}
+	return old, replacement, nil
+}
+
+func insertEntry(ctx context.Context, tx *sql.Tx, e TimeEntry) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO time_entries
+			(id, description, started_at, stopped_at, project_id, pomodoro,
+			 pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.Description, e.StartedAt.UTC().Format(time.RFC3339), nullTimeString(e.StoppedAt),
+		e.ProjectID, boolToInt(e.Pomodoro),
+		e.PomodoroDurationSeconds, nullTimeString(e.PomodoroEndsAt),
+		e.CreatedAt.UTC().Format(time.RFC3339), e.UpdatedAt.UTC().Format(time.RFC3339))
+	return err
 }
 
 // ActiveEntry returns the single active entry or ErrNoActiveEntry.
@@ -205,53 +248,20 @@ func (s *Store) StopEntry(ctx context.Context, entryID string, stopAt time.Time)
 	}
 
 	stopped := stopAt.UTC().Format(time.RFC3339)
-	_, err = tx.ExecContext(ctx, `
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE time_entries
 		SET stopped_at = ?, updated_at = ?
 		WHERE id = ? AND stopped_at IS NULL`,
-		stopped, stopped, id)
-	if err != nil {
+		stopped, stopped, id); err != nil {
 		return TimeEntry{}, fmt.Errorf("stop entry %s: %w", id, err)
 	}
 
-	var e TimeEntry
-	var reloaded struct {
-		started, created, updated string
-		stoppedAt, pomodoroEndsAt *string
-		pomodoro                  int
-	}
-	err = tx.QueryRowContext(ctx, `
+	e, err := scanEntry(tx.QueryRowContext(ctx, `
 		SELECT id, description, started_at, stopped_at, project_id, pomodoro,
 		       pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at
-		FROM time_entries WHERE id = ?`, id).
-		Scan(&e.ID, &e.Description, &reloaded.started, &reloaded.stoppedAt, &e.ProjectID,
-			&reloaded.pomodoro, &e.PomodoroDurationSeconds, &reloaded.pomodoroEndsAt,
-			&reloaded.created, &reloaded.updated)
+		FROM time_entries WHERE id = ?`, id))
 	if err != nil {
 		return TimeEntry{}, fmt.Errorf("reload stopped entry: %w", err)
-	}
-	e.StartedAt, err = parseTime(reloaded.started, err)
-	e.CreatedAt, err = parseTime(reloaded.created, err)
-	e.UpdatedAt, err = parseTime(reloaded.updated, err)
-	if err != nil {
-		return TimeEntry{}, err
-	}
-	e.Pomodoro = reloaded.pomodoro == 1
-	if reloaded.stoppedAt != nil {
-		var stopped time.Time
-		stopped, err = parseTime(*reloaded.stoppedAt, err)
-		if err != nil {
-			return TimeEntry{}, err
-		}
-		e.StoppedAt = &stopped
-	}
-	if reloaded.pomodoroEndsAt != nil {
-		var ends time.Time
-		ends, err = parseTime(*reloaded.pomodoroEndsAt, err)
-		if err != nil {
-			return TimeEntry{}, err
-		}
-		e.PomodoroEndsAt = &ends
 	}
 	if err := tx.Commit(); err != nil {
 		return TimeEntry{}, fmt.Errorf("commit stop: %w", err)
@@ -319,34 +329,66 @@ func scanProject(rows scanner) (Project, error) {
 }
 
 func scanEntry(rows scanner) (TimeEntry, error) {
+	return scanEntryExtra(rows)
+}
+
+// scanEntryResult maps one ListEntries row: the 10 canonical entry columns
+// via the shared mapping, plus the denormalised project name appended as an
+// extra destination.
+func scanEntryResult(rows scanner) (EntryResult, error) {
+	var projectName string
+	e, err := scanEntryExtra(rows, &projectName)
+	if err != nil {
+		return EntryResult{}, err
+	}
+	return EntryResult{Entry: e, ProjectName: projectName}, nil
+}
+
+// scanEntryExtra scans the 10 canonical entry columns and then any extra
+// destinations appended by the caller (e.g. a joined project name).
+func scanEntryExtra(rows scanner, extra ...any) (TimeEntry, error) {
 	var e TimeEntry
 	var started, created, updated string
 	var stoppedAt, pomodoroEndsAt *string
 	var pomodoro int
-	err := rows.Scan(&e.ID, &e.Description, &started, &stoppedAt, &e.ProjectID,
+	dests := []any{&e.ID, &e.Description, &started, &stoppedAt, &e.ProjectID,
 		&pomodoro, &e.PomodoroDurationSeconds, &pomodoroEndsAt,
-		&created, &updated)
+		&created, &updated}
+	dests = append(dests, extra...)
+	err := rows.Scan(dests...)
 	if err != nil {
 		return TimeEntry{}, fmt.Errorf("scan entry: %w", err)
 	}
 	e.Pomodoro = pomodoro == 1
-	e.StartedAt, err = parseTime(started, err)
-	e.CreatedAt, err = parseTime(created, err)
-	e.UpdatedAt, err = parseTime(updated, err)
+	e.StartedAt, err = parseTime(started, nil)
+	if err != nil {
+		return TimeEntry{}, err
+	}
+	e.CreatedAt, err = parseTime(created, nil)
+	if err != nil {
+		return TimeEntry{}, err
+	}
+	e.UpdatedAt, err = parseTime(updated, nil)
 	if err != nil {
 		return TimeEntry{}, err
 	}
 	if stoppedAt != nil {
 		var stopped time.Time
-		stopped, err = parseTime(*stoppedAt, err)
+		stopped, err = parseTime(*stoppedAt, nil)
+		if err != nil {
+			return TimeEntry{}, err
+		}
 		e.StoppedAt = &stopped
 	}
 	if pomodoroEndsAt != nil {
 		var ends time.Time
-		ends, err = parseTime(*pomodoroEndsAt, err)
+		ends, err = parseTime(*pomodoroEndsAt, nil)
+		if err != nil {
+			return TimeEntry{}, err
+		}
 		e.PomodoroEndsAt = &ends
 	}
-	return e, err
+	return e, nil
 }
 
 func parseTime(s string, err error) (time.Time, error) {

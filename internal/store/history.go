@@ -24,13 +24,18 @@ type EntryResult struct {
 	ProjectName string
 }
 
+// entryResultColumns is the entry column list shared by ListEntries' query,
+// kept in sync with scanEntry's expectations (project name appended last).
+const entryResultColumns = `
+	e.id, e.description, e.started_at, e.stopped_at, e.project_id,
+	e.pomodoro, e.pomodoro_duration_seconds, e.pomodoro_ends_at,
+	e.created_at, e.updated_at`
+
 // ListEntries returns entries matching one filter definition. This is the
 // shared query path for list, report, and CSV export (spec §10, task D1).
 func (s *Store) ListEntries(ctx context.Context, filter EntryFilter) ([]EntryResult, error) {
 	query := `
-		SELECT e.id, e.description, e.started_at, e.stopped_at, e.project_id,
-		       e.pomodoro, e.pomodoro_duration_seconds, e.pomodoro_ends_at,
-		       e.created_at, e.updated_at, COALESCE(p.name, '')
+		SELECT ` + entryResultColumns + `, COALESCE(p.name, '')
 		FROM time_entries e
 		LEFT JOIN projects p ON p.id = e.project_id`
 	var clauses []string
@@ -73,43 +78,9 @@ func (s *Store) ListEntries(ctx context.Context, filter EntryFilter) ([]EntryRes
 
 	var results []EntryResult
 	for rows.Next() {
-		var result EntryResult
-		var started, created, updated string
-		var stoppedAt, pomodoroEndsAt *string
-		var pomodoro int
-		err := rows.Scan(&result.Entry.ID, &result.Entry.Description, &started,
-			&stoppedAt, &result.Entry.ProjectID, &pomodoro,
-			&result.Entry.PomodoroDurationSeconds, &pomodoroEndsAt,
-			&created, &updated, &result.ProjectName)
-		if err != nil {
-			return nil, fmt.Errorf("scan entry result: %w", err)
-		}
-		result.Entry.Pomodoro = pomodoro == 1
-		result.Entry.StartedAt, err = parseTime(started, nil)
+		result, err := scanEntryResult(rows)
 		if err != nil {
 			return nil, err
-		}
-		result.Entry.CreatedAt, err = parseTime(created, nil)
-		if err != nil {
-			return nil, err
-		}
-		result.Entry.UpdatedAt, err = parseTime(updated, nil)
-		if err != nil {
-			return nil, err
-		}
-		if stoppedAt != nil {
-			stopped, parseErr := parseTime(*stoppedAt, nil)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			result.Entry.StoppedAt = &stopped
-		}
-		if pomodoroEndsAt != nil {
-			ends, parseErr := parseTime(*pomodoroEndsAt, nil)
-			if parseErr != nil {
-				return nil, parseErr
-			}
-			result.Entry.PomodoroEndsAt = &ends
 		}
 		results = append(results, result)
 	}

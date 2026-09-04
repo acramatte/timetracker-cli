@@ -113,7 +113,9 @@ func TestProjectsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tk.Stop(ctx, "", nil)
 	require.NoError(t, err)
-	require.NoError(t, pr.Archive(ctx, proj.ID))
+	archived, err := pr.Archive(ctx, proj.ID)
+	require.NoError(t, err)
+	assert.True(t, archived.Archived)
 
 	active, err := pr.List(ctx, false)
 	require.NoError(t, err)
@@ -216,7 +218,7 @@ func TestPomodoroRunDeadlineWithFakeNotifier(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stopped, err := pom.RunDeadline(ctx, e)
+	stopped, err := pom.RunDeadline(ctx, e, nil)
 	require.NoError(t, err)
 	assert.Equal(t, 1, notified, "AT-45: exactly one notification attempt")
 	require.NotNil(t, stopped.StoppedAt)
@@ -228,8 +230,8 @@ func TestPomodoroRunDeadlineReportsProgress(t *testing.T) {
 	_, pom, _, _ := newTestApp(t)
 	ctx := context.Background()
 
-	var updates []time.Duration
-	pom.Progress = func(remaining time.Duration) {
+	updates := []time.Duration(nil)
+	progress := func(remaining time.Duration) {
 		updates = append(updates, remaining)
 	}
 
@@ -243,7 +245,7 @@ func TestPomodoroRunDeadlineReportsProgress(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stopped, err := pom.RunDeadline(ctx, e)
+	stopped, err := pom.RunDeadline(ctx, e, progress)
 	require.NoError(t, err)
 	require.NotNil(t, stopped.StoppedAt)
 	require.NotEmpty(t, updates, "foreground runner must report countdown progress")
@@ -274,7 +276,7 @@ func TestNotificationFailureIsNonFatal(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	stopped, err := pom.RunDeadline(ctx, e)
+	stopped, err := pom.RunDeadline(ctx, e, nil)
 	require.NoError(t, err, "notification failure must not fail completion")
 	require.NotNil(t, stopped.StoppedAt)
 }
@@ -354,13 +356,13 @@ func TestJSONEnvelopeShapes(t *testing.T) {
 	assert.Contains(t, payload, `"id":`)
 	assert.Contains(t, payload, `"stopped_at":null`)
 
-	payload, err = MarshalActive(e, nil)
+	payload, err = MarshalActive(&e)
 	require.NoError(t, err)
 	assert.Contains(t, payload, `"active":`)
 
-	payload, err = MarshalActive(store.TimeEntry{}, store.ErrNoActiveEntry)
+	payload, err = MarshalActive(nil)
 	require.NoError(t, err)
-	assert.Equal(t, `{"active": null}`, payload)
+	assert.Equal(t, `{"active":null}`, payload)
 }
 
 func TestMapErrorCategories(t *testing.T) {

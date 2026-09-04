@@ -90,7 +90,7 @@ func ExportCSV(ctx context.Context, s *store.Store, filters EntryFilters, w io.W
 			seconds := int64(e.StoppedAt.Sub(e.StartedAt).Seconds())
 			end = e.StoppedAt.UTC().Format(time.RFC3339)
 			duration = strconv.FormatInt(seconds, 10)
-			durationFormatted = formatDuration(seconds)
+			durationFormatted = FormatDuration(seconds)
 		}
 		if err := writer.Write([]string{
 			e.ID, e.Description, result.ProjectName,
@@ -107,7 +107,8 @@ func ExportCSV(ctx context.Context, s *store.Store, filters EntryFilters, w io.W
 	return nil
 }
 
-func formatDuration(seconds int64) string {
+// FormatDuration renders a duration in seconds as HH:MM:SS.
+func FormatDuration(seconds int64) string {
 	minutes, remainder := seconds/60, seconds%60
 	hours, minutes := minutes/60, minutes%60
 	return fmt.Sprintf("%02d:%02d:%02d", hours, minutes, remainder)
