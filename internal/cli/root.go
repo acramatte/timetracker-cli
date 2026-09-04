@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,12 +21,21 @@ import (
 // Commands that need the database (everything except help) resolve it lazily
 // via services(), so --help works before any data directory exists.
 type session struct {
-	dataPath string
-	store    *store.Store
-	tracking *app.TrackingService
-	pomodoro *app.PomodoroService
-	projects *app.ProjectsService
-	entries  *app.EntriesService
+	dataPath       string
+	store          *store.Store
+	tracking       *app.TrackingService
+	pomodoro       *app.PomodoroService
+	projects       *app.ProjectsService
+	entries        *app.EntriesService
+	notifierWriter io.Writer
+}
+
+type commandErrorWriter struct {
+	command *cobra.Command
+}
+
+func (w commandErrorWriter) Write(p []byte) (int, error) {
+	return w.command.ErrOrStderr().Write(p)
 }
 
 // services opens the database once per invocation and wires the services.
@@ -60,7 +70,11 @@ func (s *session) services(ctx context.Context) error {
 	}
 	s.store = st
 	s.tracking = &app.TrackingService{Store: st}
-	s.pomodoro = &app.PomodoroService{Store: st, Notifier: app.TerminalNotifier{Writer: os.Stderr}}
+	notifierWriter := s.notifierWriter
+	if notifierWriter == nil {
+		notifierWriter = os.Stderr
+	}
+	s.pomodoro = &app.PomodoroService{Store: st, Notifier: app.TerminalNotifier{Writer: notifierWriter}}
 	s.projects = &app.ProjectsService{Store: st}
 	s.entries = &app.EntriesService{Store: st}
 	return nil
@@ -81,6 +95,13 @@ func NewRootCommand() *cobra.Command {
 		// Global flags may be placed before the command (README contract).
 		TraverseChildren: true,
 		Args:             cobra.ArbitraryArgs,
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			flag := cmd.Root().PersistentFlags().Lookup("data-dir")
+			if flag != nil && flag.Changed && sess.dataPath == "" {
+				return usagef("--data-dir must not be empty")
+			}
+			return nil
+		},
 		// No bare invocation prints help; unknown first args are rejected.
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 0 {
@@ -89,6 +110,7 @@ func NewRootCommand() *cobra.Command {
 			return usagef("unknown command %q for %q", args[0], cmd.CommandPath())
 		},
 	}
+	sess.notifierWriter = commandErrorWriter{command: root}
 	// The flag writes straight into the session so services() applies the
 	// documented flag > env > platform-default precedence on first use.
 	root.PersistentFlags().StringVar(&sess.dataPath, "data-dir", "", "override the data directory")
@@ -125,15 +147,16 @@ Install zsh completion with:
 		ValidArgsFunction: cobra.NoFileCompletions,
 		ValidArgs:         []string{"bash", "zsh", "fish", "powershell"},
 		RunE: func(cmd *cobra.Command, args []string) error {
+			out := cmd.OutOrStdout()
 			switch args[0] {
 			case "bash":
-				return root.GenBashCompletionV2(os.Stdout, true)
+				return root.GenBashCompletionV2(out, true)
 			case "zsh":
-				return root.GenZshCompletion(os.Stdout)
+				return root.GenZshCompletion(out)
 			case "fish":
-				return root.GenFishCompletion(os.Stdout, true)
+				return root.GenFishCompletion(out, true)
 			case "powershell":
-				return root.GenPowerShellCompletionWithDesc(os.Stdout)
+				return root.GenPowerShellCompletionWithDesc(out)
 			}
 			return nil
 		},
@@ -328,7 +351,7 @@ func newPomodoroStartCommand(sess *session, jsonOut *bool) *cobra.Command {
 				progress = func(remaining time.Duration) {
 					fmt.Fprintf(cmd.OutOrStdout(), "\rremaining %02d:%02d", int(remaining/time.Minute), int(remaining/time.Second)%60)
 					if remaining <= 0 {
-						fmt.Println()
+						fmt.Fprintln(cmd.OutOrStdout())
 					}
 				}
 			}
@@ -385,11 +408,11 @@ func newProjectsCommand(sess *session, jsonOut *bool) *cobra.Command {
 			return cmd.Help()
 		},
 	}
-	cmd.AddCommand(newProjectsAddCommand(sess), newProjectsListCommand(sess), newProjectsArchiveCommand(sess))
+	cmd.AddCommand(newProjectsAddCommand(sess, jsonOut), newProjectsListCommand(sess, jsonOut), newProjectsArchiveCommand(sess, jsonOut))
 	return cmd
 }
 
-func newProjectsAddCommand(sess *session) *cobra.Command {
+func newProjectsAddCommand(sess *session, jsonOut *bool) *cobra.Command {
 	var color string
 	cmd := &cobra.Command{
 		Use:   "add [flags] <name...>",
@@ -404,6 +427,9 @@ func newProjectsAddCommand(sess *session) *cobra.Command {
 			if err != nil {
 				return fail(err)
 			}
+			if *jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(app.ProjectEnvelope{Project: app.ToProjectDTO(proj)})
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "created project %s\n", proj.ID)
 			return nil
 		},
@@ -412,7 +438,7 @@ func newProjectsAddCommand(sess *session) *cobra.Command {
 	return cmd
 }
 
-func newProjectsListCommand(sess *session) *cobra.Command {
+func newProjectsListCommand(sess *session, jsonOut *bool) *cobra.Command {
 	var all bool
 	cmd := &cobra.Command{
 		Use:   "list",
@@ -426,6 +452,13 @@ func newProjectsListCommand(sess *session) *cobra.Command {
 			projects, err := sess.projects.List(ctx, all)
 			if err != nil {
 				return fail(err)
+			}
+			if *jsonOut {
+				dtos := make([]app.ProjectDTO, len(projects))
+				for i, project := range projects {
+					dtos[i] = app.ToProjectDTO(project)
+				}
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(app.ProjectsEnvelope{Projects: dtos})
 			}
 			for _, pr := range projects {
 				archived := ""
@@ -441,7 +474,7 @@ func newProjectsListCommand(sess *session) *cobra.Command {
 	return cmd
 }
 
-func newProjectsArchiveCommand(sess *session) *cobra.Command {
+func newProjectsArchiveCommand(sess *session, jsonOut *bool) *cobra.Command {
 	return &cobra.Command{
 		Use:   "archive <project-id>",
 		Short: "Archive a project",
@@ -451,10 +484,14 @@ func newProjectsArchiveCommand(sess *session) *cobra.Command {
 			if err := sess.services(ctx); err != nil {
 				return fail(err)
 			}
-			if err := sess.projects.Archive(ctx, args[0]); err != nil {
+			project, err := sess.projects.Archive(ctx, args[0])
+			if err != nil {
 				return fail(err)
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "archived %s\n", args[0])
+			if *jsonOut {
+				return json.NewEncoder(cmd.OutOrStdout()).Encode(app.ProjectEnvelope{Project: app.ToProjectDTO(project)})
+			}
+			fmt.Fprintf(cmd.OutOrStdout(), "archived %s\n", project.ID)
 			return nil
 		},
 	}
@@ -617,7 +654,7 @@ func newReportCommand(sess *session, jsonOut *bool) *cobra.Command {
 			if err != nil {
 				return fail(err)
 			}
-			formatted := formatReportDuration(report.CompletedDuration)
+			formatted := app.FormatDuration(report.CompletedDuration)
 			payload := app.ReportEnvelope{
 				Count:                      report.Count,
 				CompletedDurationSeconds:   report.CompletedDuration,

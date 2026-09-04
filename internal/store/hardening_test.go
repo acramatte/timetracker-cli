@@ -76,6 +76,53 @@ func TestConcurrentStartsEnforceSingleActive(t *testing.T) {
 	require.NotEmpty(t, active.ID)
 }
 
+func TestConcurrentReplacesNeverLoseActiveEntry(t *testing.T) {
+	ctx := context.Background()
+	dbPath := filepath.Join(t.TempDir(), "timetracker.db")
+	now := time.Now().UTC().Truncate(time.Second)
+
+	db1, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer db1.Close()
+	db2, err := Open(ctx, dbPath)
+	require.NoError(t, err)
+	defer db2.Close()
+
+	first := &Store{DB: db1}
+	_, err = first.StartEntry(ctx, entry("e-original", "original", now.Add(-time.Hour)))
+	require.NoError(t, err)
+
+	stores := []*Store{first, {DB: db2}}
+	ready := make(chan struct{})
+	results := make(chan error, len(stores))
+	var wg sync.WaitGroup
+	for i, s := range stores {
+		wg.Add(1)
+		go func(id int, s *Store) {
+			defer wg.Done()
+			<-ready
+			_, _, err := s.ReplaceEntry(ctx, entry("e-replacement-"+string(rune('a'+id)), "replacement", now), now)
+			results <- err
+		}(i, s)
+	}
+	close(ready)
+	wg.Wait()
+	close(results)
+
+	successes := 0
+	for err := range results {
+		require.NoError(t, err, "write-first replacements should serialize behind SQLite's busy timeout")
+		successes++
+	}
+	require.Equal(t, len(stores), successes, "all concurrent replacements must commit")
+
+	var total, active int
+	require.NoError(t, db1.QueryRowContext(ctx, `SELECT COUNT(*) FROM time_entries`).Scan(&total))
+	require.NoError(t, db1.QueryRowContext(ctx, `SELECT COUNT(*) FROM time_entries WHERE stopped_at IS NULL`).Scan(&active))
+	require.Equal(t, successes+1, total, "failed replacements must not leave inserted rows")
+	require.Equal(t, 1, active, "concurrent replacements must never leave an active-entry gap")
+}
+
 // TestInterruptionRecoveryLeavesDurableState simulates a process being
 // terminated mid-mutation (AT-38): on the next open SQLite must recover to
 // an all-or-nothing durable state with no invariant violation.

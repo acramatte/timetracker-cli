@@ -57,6 +57,6 @@ func (p *ProjectsService) List(ctx context.Context, includeArchived bool) ([]sto
 }
 
 // Archive marks a project archived (spec §9.5: history untouched).
-func (p *ProjectsService) Archive(ctx context.Context, id string) error {
+func (p *ProjectsService) Archive(ctx context.Context, id string) (store.Project, error) {
 	return p.Store.ArchiveProject(ctx, id, p.now())
 }

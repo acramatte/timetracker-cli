@@ -107,17 +107,19 @@ func (s *Store) ProjectExists(ctx context.Context, id string) (bool, error) {
 // ArchiveProject marks a project archived; historical entries keep their
 // project identity (spec §9.5). Returns ErrNotFound for unknown IDs. The
 // caller supplies updatedAt so tests can inject the clock.
-func (s *Store) ArchiveProject(ctx context.Context, id string, updatedAt time.Time) error {
-	res, err := s.DB.ExecContext(ctx,
-		`UPDATE projects SET archived = 1, updated_at = ? WHERE id = ?`,
-		updatedAt.UTC().Format(time.RFC3339), id)
+func (s *Store) ArchiveProject(ctx context.Context, id string, updatedAt time.Time) (Project, error) {
+	persistedAt := updatedAt.UTC().Truncate(time.Second)
+	project, err := scanProject(s.DB.QueryRowContext(ctx, `
+		UPDATE projects SET archived = 1, updated_at = ? WHERE id = ?
+		RETURNING id, name, color, archived, created_at, updated_at`,
+		persistedAt.Format(time.RFC3339), id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Project{}, ErrNotFound
+	}
 	if err != nil {
-		return fmt.Errorf("archive project %s: %w", id, err)
+		return Project{}, fmt.Errorf("archive project %s: %w", id, err)
 	}
-	if n, _ := res.RowsAffected(); n == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return project, nil
 }
 
 // StartEntry creates a new active entry. The single-active-entry invariant
@@ -130,17 +132,7 @@ func (s *Store) StartEntry(ctx context.Context, e TimeEntry) (TimeEntry, error) 
 	}
 	defer tx.Rollback()
 
-	stoppedAt := nullTimeString(e.StoppedAt)
-	_, err = tx.ExecContext(ctx, `
-		INSERT INTO time_entries
-			(id, description, started_at, stopped_at, project_id, pomodoro,
-			 pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		e.ID, e.Description, e.StartedAt.UTC().Format(time.RFC3339), stoppedAt,
-		e.ProjectID, boolToInt(e.Pomodoro),
-		e.PomodoroDurationSeconds, nullTimeString(e.PomodoroEndsAt),
-		e.CreatedAt.UTC().Format(time.RFC3339), e.UpdatedAt.UTC().Format(time.RFC3339))
-	if err != nil {
+	if err := insertEntry(ctx, tx, e); err != nil {
 		if strings.Contains(err.Error(), "one_active_time_entry") {
 			return TimeEntry{}, ErrActiveEntryExists
 		}
@@ -151,6 +143,57 @@ func (s *Store) StartEntry(ctx context.Context, e TimeEntry) (TimeEntry, error) 
 		return TimeEntry{}, fmt.Errorf("commit start: %w", err)
 	}
 	return e, nil
+}
+
+// ReplaceEntry closes the current active entry and inserts replacement in one
+// transaction, so an insertion failure rolls the stop back rather than leaving
+// the previous entry closed.
+func (s *Store) ReplaceEntry(ctx context.Context, replacement TimeEntry, stopAt time.Time) (TimeEntry, TimeEntry, error) {
+	tx, err := s.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("begin replace transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	stoppedAt := stopAt.UTC().Truncate(time.Second)
+	old, err := scanEntry(tx.QueryRowContext(ctx, `
+		UPDATE time_entries
+		SET stopped_at = ?, updated_at = ?
+		WHERE stopped_at IS NULL
+		RETURNING id, description, started_at, stopped_at, project_id, pomodoro,
+		          pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at`,
+		stoppedAt.Format(time.RFC3339), stoppedAt.Format(time.RFC3339)))
+	if errors.Is(err, sql.ErrNoRows) {
+		return TimeEntry{}, TimeEntry{}, ErrNoActiveEntry
+	}
+	if err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("stop active entry for replace: %w", err)
+	}
+
+	if err := insertEntry(ctx, tx, replacement); err != nil {
+		if strings.Contains(err.Error(), "one_active_time_entry") {
+			return TimeEntry{}, TimeEntry{}, ErrActiveEntryExists
+		}
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("insert replacement entry: %w", err)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return TimeEntry{}, TimeEntry{}, fmt.Errorf("commit replace: %w", err)
+	}
+	return old, replacement, nil
+}
+
+func insertEntry(ctx context.Context, tx *sql.Tx, e TimeEntry) error {
+	_, err := tx.ExecContext(ctx, `
+		INSERT INTO time_entries
+			(id, description, started_at, stopped_at, project_id, pomodoro,
+			 pomodoro_duration_seconds, pomodoro_ends_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		e.ID, e.Description, e.StartedAt.UTC().Format(time.RFC3339), nullTimeString(e.StoppedAt),
+		e.ProjectID, boolToInt(e.Pomodoro),
+		e.PomodoroDurationSeconds, nullTimeString(e.PomodoroEndsAt),
+		e.CreatedAt.UTC().Format(time.RFC3339), e.UpdatedAt.UTC().Format(time.RFC3339))
+	return err
 }
 
 // ActiveEntry returns the single active entry or ErrNoActiveEntry.

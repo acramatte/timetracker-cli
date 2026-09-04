@@ -113,7 +113,9 @@ func TestProjectsLifecycle(t *testing.T) {
 	require.NoError(t, err)
 	_, err = tk.Stop(ctx, "", nil)
 	require.NoError(t, err)
-	require.NoError(t, pr.Archive(ctx, proj.ID))
+	archived, err := pr.Archive(ctx, proj.ID)
+	require.NoError(t, err)
+	assert.True(t, archived.Archived)
 
 	active, err := pr.List(ctx, false)
 	require.NoError(t, err)

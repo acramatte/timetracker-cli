@@ -2,12 +2,16 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/acramatte/timetracker-cli/internal/platform"
+	"github.com/acramatte/timetracker-cli/internal/store"
 )
 
 // execCLI runs one command invocation in-process against a fresh temporary
@@ -59,16 +63,52 @@ func TestTableDataDirIsHonoured(t *testing.T) {
 		t.Errorf("doctor data_dir = %q, want %q", report.DataDir, dir)
 	}
 
-	// A data-mutating command lands in the same directory.
-	out, stderr, err = execCLI(t, dir, "start", "table test")
+	// A mutating command also creates and writes the flag-selected database
+	// without requiring init, while the competing environment path stays clean.
+	startDir := t.TempDir()
+	envDir := t.TempDir()
+	t.Setenv(platform.EnvDataDir, envDir)
+	out, stderr, err = execCLI(t, startDir, "start", "table test")
 	if err != nil {
 		t.Fatalf("start: %v\nstdout: %s\nstderr: %s", err, out, stderr)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "timetracker.db")); err != nil {
-		t.Fatalf("start did not use --data-dir: %v", err)
+	startDB := filepath.Join(startDir, "timetracker.db")
+	if _, err := os.Stat(startDB); err != nil {
+		t.Fatalf("start did not create the database under --data-dir: %v", err)
 	}
-	if strings.Contains(out, "timetracker.db") && !strings.Contains(out, "started e") {
-		t.Errorf("unexpected start output %q", out)
+	if _, err := os.Stat(filepath.Join(envDir, "timetracker.db")); !os.IsNotExist(err) {
+		t.Fatalf("start wrote to TIMETRACKER_DATA_DIR despite --data-dir; stat error: %v", err)
+	}
+	db, err := store.Open(context.Background(), startDB)
+	if err != nil {
+		t.Fatalf("open start database: %v", err)
+	}
+	defer db.Close()
+	active, err := (&store.Store{DB: db}).ActiveEntry(context.Background())
+	if err != nil {
+		t.Fatalf("read active entry from --data-dir database: %v", err)
+	}
+	if active.Description != "table test" {
+		t.Errorf("active description = %q, want table test", active.Description)
+	}
+}
+
+func TestExplicitEmptyDataDirIsRejected(t *testing.T) {
+	root := NewRootCommand()
+	var stdout, stderr bytes.Buffer
+	root.SetOut(&stdout)
+	root.SetErr(&stderr)
+	root.SetArgs([]string{"--data-dir=", "status"})
+
+	err := root.Execute()
+	if err == nil {
+		t.Fatal("explicit empty --data-dir accepted")
+	}
+	if got := ExitCode(err); got != 64 {
+		t.Errorf("empty --data-dir exit = %d, want 64", got)
+	}
+	if !strings.Contains(err.Error(), "must not be empty") {
+		t.Errorf("empty --data-dir error = %q", err)
 	}
 }
 
@@ -160,6 +200,77 @@ func TestTableEntryJSONUsesCanonicalShape(t *testing.T) {
 	// sub-second precision); only the shape is asserted.
 	if reportPayload.CompletedDurationSeconds < 0 {
 		t.Errorf("completed duration = %d, want >= 0", reportPayload.CompletedDurationSeconds)
+	}
+}
+
+func TestProjectCommandsHonorJSON(t *testing.T) {
+	dir := t.TempDir()
+	out, stderr, err := execCLI(t, dir, "--json", "projects", "add", "--color", "#2563eb", "Demo")
+	if err != nil {
+		t.Fatalf("projects add: %v (stderr %s)", err, stderr)
+	}
+	var created struct {
+		Project struct {
+			ID        string  `json:"id"`
+			Name      string  `json:"name"`
+			Color     *string `json:"color"`
+			Archived  bool    `json:"archived"`
+			CreatedAt string  `json:"created_at"`
+			UpdatedAt string  `json:"updated_at"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal([]byte(out), &created); err != nil {
+		t.Fatalf("parse projects add JSON %q: %v", out, err)
+	}
+	if created.Project.ID == "" || created.Project.Name != "Demo" {
+		t.Fatalf("unexpected created project: %+v", created.Project)
+	}
+	if created.Project.Color == nil || *created.Project.Color != "#2563eb" {
+		t.Errorf("created project color = %v", created.Project.Color)
+	}
+	if created.Project.Archived {
+		t.Error("new project is archived")
+	}
+	for field, value := range map[string]string{
+		"created_at": created.Project.CreatedAt,
+		"updated_at": created.Project.UpdatedAt,
+	} {
+		if _, err := time.Parse(time.RFC3339, value); err != nil {
+			t.Errorf("%s %q is not RFC 3339: %v", field, value, err)
+		}
+	}
+
+	out, stderr, err = execCLI(t, dir, "--json", "projects", "list")
+	if err != nil {
+		t.Fatalf("projects list: %v (stderr %s)", err, stderr)
+	}
+	var listed struct {
+		Projects []struct {
+			ID string `json:"id"`
+		} `json:"projects"`
+	}
+	if err := json.Unmarshal([]byte(out), &listed); err != nil {
+		t.Fatalf("parse projects list JSON %q: %v", out, err)
+	}
+	if len(listed.Projects) != 1 || listed.Projects[0].ID != created.Project.ID {
+		t.Fatalf("unexpected project list: %+v", listed.Projects)
+	}
+
+	out, stderr, err = execCLI(t, dir, "--json", "projects", "archive", created.Project.ID)
+	if err != nil {
+		t.Fatalf("projects archive: %v (stderr %s)", err, stderr)
+	}
+	var archived struct {
+		Project struct {
+			ID       string `json:"id"`
+			Archived bool   `json:"archived"`
+		} `json:"project"`
+	}
+	if err := json.Unmarshal([]byte(out), &archived); err != nil {
+		t.Fatalf("parse projects archive JSON %q: %v", out, err)
+	}
+	if archived.Project.ID != created.Project.ID || !archived.Project.Archived {
+		t.Fatalf("unexpected archived project: %+v", archived.Project)
 	}
 }
 

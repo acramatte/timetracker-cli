@@ -40,6 +40,30 @@ func TestUnknownCommandIsUsageError(t *testing.T) {
 	}
 }
 
+func TestCompletionUsesConfiguredWriter(t *testing.T) {
+	out, _, err := runRoot(t, "completion", "bash")
+	if err != nil {
+		t.Fatalf("completion bash: %v", err)
+	}
+	if !strings.Contains(out, "bash completion") {
+		t.Errorf("captured completion output missing marker")
+	}
+}
+
+func TestCommandErrorWriterUsesConfiguredStderr(t *testing.T) {
+	root := NewRootCommand()
+	var stderr bytes.Buffer
+	root.SetErr(&stderr)
+
+	writer := commandErrorWriter{command: root}
+	if _, err := writer.Write([]byte("notification")); err != nil {
+		t.Fatalf("write notification: %v", err)
+	}
+	if got := stderr.String(); got != "notification" {
+		t.Errorf("captured stderr = %q, want notification", got)
+	}
+}
+
 func TestExitCodeCategories(t *testing.T) {
 	if got := ExitCode(nil); got != 0 {
 		t.Errorf("nil error exit = %d, want 0", got)

@@ -76,11 +76,6 @@ func (t *TrackingService) Stop(ctx context.Context, entryID string, at *time.Tim
 	stopAt := t.now().UTC().Truncate(time.Second)
 	if at != nil {
 		stopAt = at.UTC()
-		if stopAt.Before(t.now().Add(-24 * time.Hour)) {
-			// Guard against obviously wrong backdated stops; the spec
-			// allows --at for corrections but not years in the past.
-			return store.TimeEntry{}, fmt.Errorf("%w: --at is more than 24h in the past", ErrValidation)
-		}
 	}
 
 	// Validate the resulting range before mutating so a bad --at surfaces
@@ -102,12 +97,11 @@ func (t *TrackingService) Stop(ctx context.Context, entryID string, at *time.Tim
 	return t.Store.StopEntry(ctx, entryID, stopAt)
 }
 
-// Replace validates the new entry's inputs first, then closes the active
-// entry and starts the new one. Validation runs before any mutation so a
-// rejected replacement never leaves the previous entry stopped (spec §9.6).
+// Replace validates the new entry's inputs, then atomically closes the active
+// entry and starts the new one in a single store transaction (spec §9.6).
 func (t *TrackingService) Replace(ctx context.Context, opts StartOptions) (store.TimeEntry, store.TimeEntry, error) {
 	// Pre-flight validation: description and project must be accepted for
-	// the new entry before the old one is touched.
+	// the new entry before the store transaction starts.
 	desc, err := normalizeDescription(opts.Description)
 	if err != nil {
 		return store.TimeEntry{}, store.TimeEntry{}, err
@@ -117,31 +111,17 @@ func (t *TrackingService) Replace(ctx context.Context, opts StartOptions) (store
 		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
 
-	old, err := t.Store.ActiveEntry(ctx)
-	if err != nil {
-		return store.TimeEntry{}, store.TimeEntry{}, err // ErrNoActiveEntry propagates
-	}
-
 	now := t.now().UTC().Truncate(time.Second)
-	stopped, err := t.Store.StopEntry(ctx, old.ID, now)
+	id, err := newID()
 	if err != nil {
 		return store.TimeEntry{}, store.TimeEntry{}, err
 	}
-
-	id, err := newID()
-	if err != nil {
-		return stopped, store.TimeEntry{}, err
-	}
-	started, err := t.Store.StartEntry(ctx, store.TimeEntry{
+	return t.Store.ReplaceEntry(ctx, store.TimeEntry{
 		ID:          id,
 		Description: desc,
 		StartedAt:   now,
 		ProjectID:   projectID,
 		CreatedAt:   now,
 		UpdatedAt:   now,
-	})
-	if err != nil {
-		return stopped, store.TimeEntry{}, err
-	}
-	return stopped, started, nil
+	}, now)
 }

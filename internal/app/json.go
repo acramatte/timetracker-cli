@@ -8,6 +8,38 @@ import (
 	"github.com/acramatte/timetracker-cli/internal/store"
 )
 
+// ProjectDTO is the stable JSON resource shape for a project.
+type ProjectDTO struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Color     *string `json:"color"`
+	Archived  bool    `json:"archived"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+}
+
+// ProjectEnvelope is the project mutation response.
+type ProjectEnvelope struct {
+	Project ProjectDTO `json:"project"`
+}
+
+// ProjectsEnvelope is the project list response.
+type ProjectsEnvelope struct {
+	Projects []ProjectDTO `json:"projects"`
+}
+
+// ToProjectDTO maps a project to its wire shape.
+func ToProjectDTO(project store.Project) ProjectDTO {
+	return ProjectDTO{
+		ID:        project.ID,
+		Name:      project.Name,
+		Color:     project.Color,
+		Archived:  project.Archived,
+		CreatedAt: project.CreatedAt.UTC().Format(time.RFC3339),
+		UpdatedAt: project.UpdatedAt.UTC().Format(time.RFC3339),
+	}
+}
+
 // EntryDTO is the JSON resource shape for a time entry (spec §6.2: stable
 // JSON envelopes). Field names follow the command contract examples.
 type EntryDTO struct {

@@ -83,6 +83,23 @@ func TestStopNamedEntryAtExplicitInstant(t *testing.T) {
 	assert.True(t, stopped.StoppedAt.Equal(at.Truncate(time.Second)))
 }
 
+func TestStopAtOlderThanTwentyFourHoursIsAllowed(t *testing.T) {
+	tk, _, _, _ := newTestApp(t)
+	ctx := context.Background()
+	startedAt := time.Date(2026, 9, 1, 8, 0, 0, 0, time.UTC)
+	tk.Now = func() time.Time { return startedAt }
+
+	e, err := tk.Start(ctx, StartOptions{Description: "historical correction"})
+	require.NoError(t, err)
+	tk.Now = func() time.Time { return startedAt.Add(72 * time.Hour) }
+	stopAt := startedAt.Add(time.Hour)
+
+	stopped, err := tk.Stop(ctx, e.ID, &stopAt)
+	require.NoError(t, err)
+	require.NotNil(t, stopped.StoppedAt)
+	assert.Equal(t, stopAt, *stopped.StoppedAt)
+}
+
 // newTestAppWithEntries builds an app plus a completed fixture entry.
 func newTestAppWithEntries(t *testing.T) (*TrackingService, *EntriesService, *ProjectsService, context.Context) {
 	tk, _, pr, en := newTestApp(t)
